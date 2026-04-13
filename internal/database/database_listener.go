@@ -182,33 +182,35 @@ func (l *Listener) Listen(ctx context.Context) error {
 	}
 	l.runReadyCallbacks(ctx)
 
-	// Run the loop that waits for notifications and creates new connections in case of failure or timeout:
+	// Run the loop that waits for notifications and creates new connections in case of failure or timeout.
+	// When WaitForNotification returns due to context deadline or any other error, pgx puts the connection
+	// in an unusable state. We must reconnect (via listenLoop) to restore the LISTEN subscription.
 	for {
 		err := l.waitLoop(ctx)
 		if err == nil {
 			l.logger.DebugContext(ctx, "Wait finishied")
 			continue
 		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			l.logger.InfoContext(
-				ctx,
-				"Wait timeout exceeded",
-				slog.Duration("timeout", l.waitTimeout),
-			)
-			continue
-		}
 		if errors.Is(err, context.Canceled) {
 			l.logger.DebugContext(ctx, "Wait canceled")
 			return err
 		}
-		l.logger.ErrorContext(
-			ctx,
-			"Wait failed",
-			slog.Any("error", err),
-		)
-		err = l.sleepBeforeRetry(ctx)
-		if err != nil {
-			return err
+		if errors.Is(err, context.DeadlineExceeded) {
+			l.logger.InfoContext(
+				ctx,
+				"Wait timeout exceeded, reconnecting",
+				slog.Duration("timeout", l.waitTimeout),
+			)
+		} else {
+			l.logger.ErrorContext(
+				ctx,
+				"Wait failed, reconnecting",
+				slog.Any("error", err),
+			)
+			err = l.sleepBeforeRetry(ctx)
+			if err != nil {
+				return err
+			}
 		}
 		err = l.listenLoop(ctx)
 		if err != nil {

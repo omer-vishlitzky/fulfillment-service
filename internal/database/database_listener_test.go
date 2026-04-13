@@ -216,6 +216,23 @@ var _ = Describe("Listener", func() {
 			Expect(proto.Equal(received, sent)).To(BeTrue())
 		})
 
+		It("Receives notification after wait timeout", func() {
+			// Wait long enough for several timeout cycles (WaitTimeout is 100ms).
+			// After a timeout, pgx puts the connection in an unusable state.
+			// This verifies the listener reconnects and re-issues LISTEN.
+			time.Sleep(1 * time.Second)
+
+			var err error
+			sent := wrapperspb.String("after timeout")
+			runWithTx(func(ctx context.Context) {
+				err = notifier.Notify(ctx, sent)
+			})
+			Expect(err).ToNot(HaveOccurred())
+			var received *wrapperspb.StringValue
+			Eventually(payloads, 2*time.Second).Should(Receive(&received))
+			Expect(proto.Equal(received, sent)).To(BeTrue())
+		})
+
 		It("Receives multiple notifications", func() {
 			var err error
 			sent := []string{

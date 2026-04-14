@@ -51,7 +51,7 @@ type PublicIPPoolsClient interface {
 	// Creates a new public IP pool.
 	Create(ctx context.Context, in *PublicIPPoolsCreateRequest, opts ...grpc.CallOption) (*PublicIPPoolsCreateResponse, error)
 	// Updates an existing public IP pool. Only metadata fields (name, labels, annotations) are mutable.
-	// All spec fields (region, cidrs, ip_family, implementation_strategy) are immutable after creation.
+	// All spec fields (cidrs, ip_family, implementation_strategy) are immutable after creation.
 	Update(ctx context.Context, in *PublicIPPoolsUpdateRequest, opts ...grpc.CallOption) (*PublicIPPoolsUpdateResponse, error)
 	// Deletes a public IP pool. Rejected if allocated PublicIPs still reference this pool.
 	Delete(ctx context.Context, in *PublicIPPoolsDeleteRequest, opts ...grpc.CallOption) (*PublicIPPoolsDeleteResponse, error)
@@ -138,7 +138,7 @@ type PublicIPPoolsServer interface {
 	// Creates a new public IP pool.
 	Create(context.Context, *PublicIPPoolsCreateRequest) (*PublicIPPoolsCreateResponse, error)
 	// Updates an existing public IP pool. Only metadata fields (name, labels, annotations) are mutable.
-	// All spec fields (region, cidrs, ip_family, implementation_strategy) are immutable after creation.
+	// All spec fields (cidrs, ip_family, implementation_strategy) are immutable after creation.
 	Update(context.Context, *PublicIPPoolsUpdateRequest) (*PublicIPPoolsUpdateResponse, error)
 	// Deletes a public IP pool. Rejected if allocated PublicIPs still reference this pool.
 	Delete(context.Context, *PublicIPPoolsDeleteRequest) (*PublicIPPoolsDeleteResponse, error)

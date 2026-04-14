@@ -189,10 +189,10 @@ type PublicIPPoolsListRequest_builder struct {
 	//
 	// The value of this parameter is a [CEL](https://cel.dev) expression used to select which objects to return. The
 	// built-in `this` variable refers to the object being tested and `now` refers to the current date and time. If the
-	// expression evaluates to `true` the object is included in the results. For example, to retrieve all public IP pools
-	// in a specific region:
+	// expression evaluates to `true` the object is included in the results. For example, to retrieve all IPv4 public
+	// IP pools:
 	//
-	//	this.spec.region == "us-east-1"
+	//	this.spec.ip_family == IP_FAMILY_IPV4
 	//
 	// If this isn't provided, or if the value is empty, then all the public IP pools that the user has permission to see
 	// will be returned. Not all CEL constructs are currently supported for implementation reasons; see the filter

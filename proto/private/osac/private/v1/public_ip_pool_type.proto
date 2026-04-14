@@ -20,9 +20,9 @@ import "osac/private/v1/metadata_type.proto";
 
 // Represents a pool of public IP addresses available for allocation to compute instances.
 //
-// Each PublicIPPool is scoped to a region and supports a single IP family (IPv4 or IPv6). The pool
-// contains one or more CIDR ranges from which individual PublicIP addresses are allocated. Pools are
-// provider-managed resources created by administrators through the private API.
+// Each PublicIPPool supports a single IP family (IPv4 or IPv6). The pool contains one or more CIDR
+// ranges from which individual PublicIP addresses are allocated. Pools are provider-managed
+// resources created by administrators through the private API.
 //
 // The implementation_strategy field determines how IPs from this pool are advertised on the target
 // cluster (e.g., MetalLB L2 mode). This field is set by the system and is not user-configurable.
@@ -45,24 +45,13 @@ message PublicIPPool {
 
 // Defines the desired configuration for a PublicIPPool.
 //
-// All spec fields are immutable after creation. To change CIDRs or region, delete the pool and
-// create a new one. The Update RPC only allows metadata changes (name, labels, annotations).
+// All spec fields are immutable after creation. To change CIDRs, delete the pool and create a
+// new one. The Update RPC only allows metadata changes (name, labels, annotations).
 message PublicIPPoolSpec {
-  // Region that this pool is scoped to. Required and immutable after creation.
-  //
-  // All PublicIPs allocated from this pool will be provisioned in this region. The region must
-  // match a valid region known to the system.
-  //
-  // Example: "us-east-1"
-  string region = 1 [
-    (google.api.field_behavior) = REQUIRED,
-    (google.api.field_behavior) = IMMUTABLE
-  ];
-
   // CIDR ranges for this pool. Required and immutable after creation.
   //
   // Each entry must be valid CIDR notation matching the declared ip_family. All CIDRs must be
-  // the same IP family. CIDRs must not overlap with CIDRs in other pools within the same region.
+  // the same IP family. CIDRs must not overlap with CIDRs in other pools.
   //
   // Example (IPv4): ["192.168.1.0/24", "10.0.5.0/28"]
   // Example (IPv6): ["2001:db8::/64"]
@@ -75,17 +64,15 @@ message PublicIPPoolSpec {
   //
   // Determines whether the CIDRs in this pool are IPv4 or IPv6. All CIDRs must match this
   // family. A single pool cannot mix IPv4 and IPv6 ranges.
-  //
-  // Valid values: "IPv4", "IPv6"
-  string ip_family = 3 [
+  IPFamily ip_family = 3 [
     (google.api.field_behavior) = REQUIRED,
     (google.api.field_behavior) = IMMUTABLE
   ];
 
   // Backend strategy used to advertise IPs from this pool on the target cluster.
   //
-  // Set by the system based on cluster configuration. Not user-configurable. For v7.0, the
-  // default is "metallb-l2" (MetalLB Layer 2 advertisement mode).
+  // Set by the system based on cluster configuration. Not user-configurable. Currently the
+  // only supported strategy is "metallb-l2" (MetalLB Layer 2 advertisement mode).
   string implementation_strategy = 4 [
     (google.api.field_behavior) = OUTPUT_ONLY,
     (google.api.field_behavior) = IMMUTABLE
@@ -126,6 +113,18 @@ message PublicIPPoolStatus {
   //
   // Equal to total minus allocated.
   int64 available = 6;
+}
+
+// IP address family for a PublicIPPool.
+enum IPFamily {
+  // IP family is unknown or has not been specified.
+  IP_FAMILY_UNSPECIFIED = 0;
+
+  // IPv4 address family. CIDRs must be valid IPv4 CIDR notation.
+  IP_FAMILY_IPV4 = 1;
+
+  // IPv6 address family. CIDRs must be valid IPv6 CIDR notation.
+  IP_FAMILY_IPV6 = 2;
 }
 
 // Lifecycle states for PublicIPPool resources.

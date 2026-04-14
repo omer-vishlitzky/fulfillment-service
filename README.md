@@ -29,10 +29,10 @@ To build the `fulfillment-service` binary:
 $ go build ./cmd/fulfillment-service
 ```
 
-To build the `fulfillment-cli` binary:
+To build the `osac` binary:
 
 ```bash
-$ go build ./cmd/fulfillment-cli
+$ go build ./cmd/osac
 ```
 
 ## Running unit tests

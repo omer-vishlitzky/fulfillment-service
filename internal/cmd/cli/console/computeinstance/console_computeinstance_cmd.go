@@ -63,7 +63,7 @@ Login credentials:
       expire: false
 
   Pass it as a template parameter when creating the instance:
-    fulfillment-cli create computeinstance --template <template> \
+    osac create computeinstance --template <template> \
       -p cloud_init_config=<base64-encoded-config>`,
 		Args: cobra.ExactArgs(1),
 		RunE: runner.run,
@@ -103,7 +103,7 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if cfg == nil {
-		c.console.Errorf(ctx, "Not logged in. Run 'fulfillment-cli login' first.\n")
+		c.console.Errorf(ctx, "Not logged in. Run 'osac login' first.\n")
 		return exit.Error(1)
 	}
 

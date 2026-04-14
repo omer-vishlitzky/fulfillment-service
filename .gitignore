@@ -7,7 +7,7 @@
 /bin
 /dev.yaml
 /dist
-/fulfillment-cli
+/osac
 /fulfillment-service
 /logs
 __debug_bin*

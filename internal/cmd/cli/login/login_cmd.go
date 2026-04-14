@@ -115,7 +115,7 @@ func Cmd() *cobra.Command {
 	flags.StringVar(
 		&runner.args.oauthClientId,
 		"oauth-client-id",
-		"fulfillment-cli",
+		"osac-cli",
 		"OAuth client identifier.",
 	)
 	flags.StringVar(

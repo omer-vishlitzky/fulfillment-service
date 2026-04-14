@@ -40,7 +40,7 @@ func Root() *cobra.Command {
 	// create the runner and the command:
 	runner := &runnerContext{}
 	result := &cobra.Command{
-		Use:               "fulfillment-cli",
+		Use:               "osac",
 		Short:             "Command line interface for the fulfillment API",
 		SilenceUsage:      true,
 		SilenceErrors:     true,
@@ -74,8 +74,8 @@ func (c *runnerContext) persistentPreRun(cmd *cobra.Command, args []string) erro
 	// cache directory.
 	//
 	// The path of the cache directory and of the log file are calculated from the name from the name of the binary.
-	// For example, if the name of the binary is `fulfillment-cli` then the cache directory will be
-	// `~/.cache/fulfillment-cli` and the log file will be `~/.cache/fufillment-cli/fulfillment-cli.log`.
+	// For example, if the name of the binary is `osac` then the cache directory will be
+	// `~/.cache/osac` and the log file will be `~/.cache/osac/osac.log`.
 	baseName := filepath.Base(os.Args[0])
 	userCacheDir, err := os.UserCacheDir()
 	if err != nil {

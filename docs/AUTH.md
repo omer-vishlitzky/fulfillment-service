@@ -131,8 +131,8 @@ The Helm chart includes a pre-configured realm named `osac` with the following s
 
 ### Pre-configured Clients
 
-The realm includes the **fulfillment-cli** (Public) client:
-   - Client ID: `fulfillment-cli`
+The realm includes the **osac-cli** (Public) client:
+   - Client ID: `osac-cli`
    - Type: Public client (no client secret required)
    - Enabled flows: Standard flow (authorization code)
    - Use case: Command-line interface authentication
@@ -343,7 +343,7 @@ To ensure that user groups are included in the JWT tokens issued by Keycloak:
 1. **Access the Keycloak Admin Console** (see [Accessing Keycloak Admin Console](#accessing-keycloak-admin-console))
 
 2. **Navigate to the Client**:
-   - Go to **Clients** → Select your client (e.g., `fulfillment-cli`)
+   - Go to **Clients** → Select your client (e.g., `osac-cli`)
 
 3. **Configure Client Scopes**:
    - Go to **Client scopes** tab
@@ -789,7 +789,7 @@ kubectl get svc -n keycloak
 
 Access the Keycloak Admin Console and verify:
 - The `osac` realm exists
-- The `fulfillment-cli` and `fulfillment-controller` clients are configured
+- The `osac-cli` and `fulfillment-controller` clients are configured
 - The realm is enabled
 
 ### 3. Verify Fulfillment Service Configuration
@@ -805,13 +805,13 @@ kubectl get authconfig fulfillment-service -n osac -o yaml | grep issuerUrl
 
 #### Test with a Keycloak JWT Token
 
-1. **Get a token from Keycloak** (using the fulfillment-cli client):
+1. **Get a token from Keycloak** (using the osac-cli client):
 
    ```bash
    # Get token (replace USERNAME and PASSWORD with actual credentials)
    TOKEN=$(curl -k -X POST \
      https://localhost:8443/realms/osac/protocol/openid-connect/token \
-     -d "client_id=fulfillment-cli" \
+     -d "client_id=osac-cli" \
      -d "username=USERNAME" \
      -d "password=PASSWORD" \
      -d "grant_type=password" \

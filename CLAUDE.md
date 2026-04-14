@@ -11,7 +11,7 @@ The fulfillment-service is a gRPC server with REST gateway for managing infrastr
 ```bash
 # Build binaries
 go build ./cmd/fulfillment-service
-go build ./cmd/fulfillment-cli
+go build ./cmd/osac
 
 # Run unit tests only (excludes integration tests in it/)
 ginkgo run -r internal
@@ -68,7 +68,7 @@ See [README.md](README.md) for instructions on running the service locally, incl
 ### Code Organization
 
 - `cmd/fulfillment-service/` - Service binary entry point (calls `internal/cmd/service.Root()`)
-- `cmd/fulfillment-cli/` - CLI binary entry point (calls `internal/cmd/cli.Root()`)
+- `cmd/osac/` - CLI binary entry point (calls `internal/cmd/cli.Root()`)
 - `internal/cmd/service/start/` - Server startup commands (grpcserver, restgateway, controller)
 - `internal/servers/` - gRPC service implementations (one `*_server.go` per resource)
 - `internal/database/` - PostgreSQL access layer with generic DAO

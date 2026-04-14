@@ -1315,7 +1315,7 @@ func (t *Tool) makeKeycloakTokenSource(ctx context.Context, username, password s
 		SetCaPool(t.caPool).
 		SetIssuer(fmt.Sprintf("https://%s/realms/osac", keycloakAddr)).
 		SetFlow(oauth.PasswordFlow).
-		SetClientId("fulfillment-cli").
+		SetClientId("osac-cli").
 		SetUsername(username).
 		SetPassword(password).
 		SetScopes("openid").

@@ -136,7 +136,7 @@ func Location() (result string, err error) {
 	if err != nil {
 		return
 	}
-	result = filepath.Join(configDir, "fulfillment-cli", "config.json")
+	result = filepath.Join(configDir, "osac", "config.json")
 	return
 }
 

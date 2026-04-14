@@ -1,6 +1,6 @@
 %global debug_package %{nil}
 
-Name: fulfillment-cli
+Name: osac-cli
 Version: @version@
 Release: 1%{?dist}
 Summary: CLI for the OSAC Fulfillment API
@@ -19,11 +19,11 @@ CLI for OSAC Fulfillment API
 %build
 go build \
 -ldflags="-X github.com/osac-project/fulfillment-service/internal/version.id=%{version}" \
-./cmd/fulfillment-cli
+./cmd/osac
 
 %install
 install -m 0755 -d %{buildroot}%{_bindir}
-install -m 0755 fulfillment-cli %{buildroot}%{_bindir}
+install -m 0755 osac %{buildroot}%{_bindir}
 
 %files
 %license LICENSE

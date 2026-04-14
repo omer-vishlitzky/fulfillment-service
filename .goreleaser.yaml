@@ -16,9 +16,9 @@ version: 2
 
 builds:
 
-- id: fulfillment-cli
-  binary: fulfillment-cli
-  main: ./cmd/fulfillment-cli
+- id: osac
+  binary: osac
+  main: ./cmd/osac
   env:
   - CGO_ENABLED=0
   goos:

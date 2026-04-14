@@ -103,7 +103,7 @@ groups: []
 # grant won't work.
 #
 # Note also that the password grant only works if it is enabled in the client. The realm configuration that we use
-# contains a client named 'fulfillment-cli' that has the password grant enabled.
+# contains a client named 'osac-cli' that has the password grant enabled.
 #
 # Refer to the Keycloak documentation for more details about the fields for users.
 #

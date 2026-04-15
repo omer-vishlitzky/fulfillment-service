@@ -167,8 +167,14 @@ func (s *PrivateComputeInstancesServer) Create(ctx context.Context,
 		return
 	}
 
-	// Validate template:
-	err = s.validateTemplate(ctx, request.GetObject())
+	// Fetch and validate template:
+	template, err := s.fetchAndValidateTemplate(ctx, request.GetObject())
+	if err != nil {
+		return
+	}
+
+	// Apply template spec defaults and validate that all required spec fields are present.
+	err = s.applySpecDefaults(request.GetObject().GetSpec(), template)
 	if err != nil {
 		return
 	}
@@ -189,7 +195,7 @@ func (s *PrivateComputeInstancesServer) Update(ctx context.Context,
 		}
 	}
 	if hasMaskPrefix(mask, "spec.template", "spec.template_parameters") {
-		err = s.validateTemplate(ctx, request.GetObject())
+		_, err = s.fetchAndValidateTemplate(ctx, request.GetObject())
 		if err != nil {
 			return
 		}
@@ -211,53 +217,28 @@ func (s *PrivateComputeInstancesServer) Signal(ctx context.Context,
 	return
 }
 
-// validateTemplate validates the template ID and parameters in the compute instance spec.
-func (s *PrivateComputeInstancesServer) validateTemplate(ctx context.Context, vm *privatev1.ComputeInstance) error {
+// fetchAndValidateTemplate fetches the template, validates parameters in the compute instance spec,
+// applies template parameter defaults, and returns the template.
+func (s *PrivateComputeInstancesServer) fetchAndValidateTemplate(ctx context.Context, vm *privatev1.ComputeInstance) (*privatev1.ComputeInstanceTemplate, error) {
 	if vm == nil {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance is mandatory")
+		return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance is mandatory")
 	}
 
 	spec := vm.GetSpec()
 	if spec == nil {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance spec is mandatory")
+		return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "compute instance spec is mandatory")
 	}
 
-	templateID := spec.GetTemplate()
-	if templateID == "" {
-		return grpcstatus.Errorf(grpccodes.InvalidArgument, "template ID is mandatory")
-	}
-
-	// Get the template:
-	getTemplateResponse, err := s.templatesDao.Get().
-		SetId(templateID).
-		Do(ctx)
+	template, err := s.fetchTemplate(ctx, spec.GetTemplate())
 	if err != nil {
-		s.logger.ErrorContext(
-			ctx,
-			"Template retrieval failed",
-			slog.String("template_id", templateID),
-			slog.Any("error", err),
-		)
-		return grpcstatus.Errorf(
-			grpccodes.Internal,
-			"failed to retrieve template '%s'",
-			templateID,
-		)
-	}
-	template := getTemplateResponse.GetObject()
-	if template == nil {
-		return grpcstatus.Errorf(
-			grpccodes.InvalidArgument,
-			"template '%s' does not exist",
-			templateID,
-		)
+		return nil, err
 	}
 
 	// Validate template parameters:
 	vmParameters := spec.GetTemplateParameters()
 	err = utils.ValidateComputeInstanceTemplateParameters(template, vmParameters)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Set default values for template parameters:
@@ -267,7 +248,56 @@ func (s *PrivateComputeInstancesServer) validateTemplate(ctx context.Context, vm
 	)
 	spec.SetTemplateParameters(actualVmParameters)
 
-	return nil
+	return template, nil
+}
+
+// fetchTemplate fetches a compute instance template
+func (s *PrivateComputeInstancesServer) fetchTemplate(ctx context.Context, templateID string) (*privatev1.ComputeInstanceTemplate, error) {
+	if templateID == "" {
+		return nil, grpcstatus.Errorf(grpccodes.InvalidArgument, "template ID is mandatory")
+	}
+
+	getTemplateResponse, err := s.templatesDao.Get().
+		SetId(templateID).
+		Do(ctx)
+	if err != nil {
+		var notFoundErr *dao.ErrNotFound
+		if errors.As(err, &notFoundErr) {
+			return nil, grpcstatus.Errorf(grpccodes.InvalidArgument,
+				"template '%s' does not exist", templateID)
+		}
+		s.logger.ErrorContext(
+			ctx,
+			"Template retrieval failed",
+			slog.String("template_id", templateID),
+			slog.Any("error", err),
+		)
+		return nil, grpcstatus.Errorf(
+			grpccodes.Internal,
+			"failed to retrieve template '%s'",
+			templateID,
+		)
+	}
+
+	template := getTemplateResponse.GetObject()
+	if template == nil {
+		return nil, grpcstatus.Errorf(
+			grpccodes.InvalidArgument,
+			"template '%s' does not exist",
+			templateID,
+		)
+	}
+	return template, nil
+}
+
+// applySpecDefaults applies template spec defaults to the spec in place and validates
+// that all required fields are present. User-provided values are never overridden.
+func (s *PrivateComputeInstancesServer) applySpecDefaults(
+	spec *privatev1.ComputeInstanceSpec,
+	template *privatev1.ComputeInstanceTemplate,
+) error {
+	utils.ApplySpecDefaults(spec, template.GetSpecDefaults())
+	return utils.ValidateRequiredSpecFields(spec)
 }
 
 func hasMaskPrefix(mask *fieldmaskpb.FieldMask, prefixes ...string) bool {

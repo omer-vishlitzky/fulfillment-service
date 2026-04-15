@@ -177,14 +177,16 @@ var _ = Describe("ComputeInstance with Subnet attachment", func() {
 			Object: publicv1.ComputeInstance_builder{
 				Id: computeInstanceId,
 				Spec: publicv1.ComputeInstanceSpec_builder{
-					Template:  computeInstanceTemplateId,
-					Cores:     proto.Int32(2),
-					MemoryGib: proto.Int32(4),
+					Template:    computeInstanceTemplateId,
+					Cores:       proto.Int32(2),
+					MemoryGib:   proto.Int32(4),
+					RunStrategy: proto.String("Always"),
 					BootDisk: publicv1.ComputeInstanceDisk_builder{
 						SizeGib: 20,
 					}.Build(),
 					Image: publicv1.ComputeInstanceImage_builder{
-						SourceRef: "quay.io/containerdisks/fedora:latest",
+						SourceType: "registry",
+						SourceRef:  "quay.io/containerdisks/fedora:latest",
 					}.Build(),
 					Subnet: proto.String(subnetId),
 				}.Build(),
@@ -208,14 +210,16 @@ var _ = Describe("ComputeInstance with Subnet attachment", func() {
 			Object: publicv1.ComputeInstance_builder{
 				Id: computeInstanceId,
 				Spec: publicv1.ComputeInstanceSpec_builder{
-					Template:  computeInstanceTemplateId,
-					Cores:     proto.Int32(2),
-					MemoryGib: proto.Int32(4),
+					Template:    computeInstanceTemplateId,
+					Cores:       proto.Int32(2),
+					MemoryGib:   proto.Int32(4),
+					RunStrategy: proto.String("Always"),
 					BootDisk: publicv1.ComputeInstanceDisk_builder{
 						SizeGib: 20,
 					}.Build(),
 					Image: publicv1.ComputeInstanceImage_builder{
-						SourceRef: "quay.io/containerdisks/fedora:latest",
+						SourceType: "registry",
+						SourceRef:  "quay.io/containerdisks/fedora:latest",
 					}.Build(),
 					Subnet: proto.String("non-existent-subnet"),
 				}.Build(),

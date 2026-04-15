@@ -15,13 +15,14 @@ package computeinstance
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/fulfillment-service/internal/config"
@@ -33,8 +34,9 @@ import (
 func Cmd() *cobra.Command {
 	runner := &runnerContext{}
 	result := &cobra.Command{
-		Use:   "computeinstance [flags] ID",
+		Use:   "computeinstance [flags] ID_OR_NAME",
 		Short: "Describe a compute instance",
+		Args:  cobra.ExactArgs(1),
 		RunE:  runner.run,
 	}
 	return result
@@ -45,66 +47,13 @@ type runnerContext struct {
 	console *terminal.Console
 }
 
-func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
-	// Check that there is exactly one compute instance ID specified
-	if len(args) != 1 {
-		fmt.Fprintf(
-			os.Stderr,
-			"Expected exactly one compute instance ID\n",
-		)
-		os.Exit(1)
-	}
-	id := args[0]
+func buildFilter(ref string) string {
+	return fmt.Sprintf(`this.id == %[1]q || this.metadata.name == %[1]q`, ref)
+}
 
-	// Get the context:
-	ctx := cmd.Context()
-
-	// Get the logger and console:
-	c.logger = logging.LoggerFromContext(ctx)
-	c.console = terminal.ConsoleFromContext(ctx)
-
-	// Get the configuration:
-	cfg, err := config.Load(ctx)
-	if err != nil {
-		return err
-	}
-	if cfg.Address == "" {
-		return fmt.Errorf("there is no configuration, run the 'login' command")
-	}
-
-	// Create the gRPC connection from the configuration:
-	conn, err := cfg.Connect(ctx, cmd.Flags())
-	if err != nil {
-		return fmt.Errorf("failed to create gRPC connection: %w", err)
-	}
-	defer conn.Close()
-
-	// Create the client for the compute instances service:
-	client := publicv1.NewComputeInstancesClient(conn)
-
-	// Look up the compute instance by ID or name using a CEL filter:
-	filter := fmt.Sprintf("this.id in ['%s'] || this.metadata.name in ['%s']", id, id)
-	listResponse, err := client.List(ctx, publicv1.ComputeInstancesListRequest_builder{
-		Filter: &filter,
-	}.Build())
-	if err != nil {
-		return fmt.Errorf("failed to describe compute instance: %w", err)
-	}
-	if len(listResponse.GetItems()) == 0 {
-		return fmt.Errorf("compute instance not found: %s", id)
-	}
-
-	// Get the full object using the resolved UUID:
-	response, err := client.Get(ctx, publicv1.ComputeInstancesGetRequest_builder{
-		Id: listResponse.GetItems()[0].GetId(),
-	}.Build())
-	if err != nil {
-		return fmt.Errorf("failed to describe compute instance: %w", err)
-	}
-
-	// Display the compute instance:
-	writer := tabwriter.NewWriter(c.console, 0, 0, 2, ' ', 0)
-	ci := response.Object
+// RenderComputeInstance writes a formatted description of ci to w.
+func RenderComputeInstance(w io.Writer, ci *publicv1.ComputeInstance) {
+	writer := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	template := "-"
 	if ci.Spec != nil {
 		template = ci.Spec.Template
@@ -112,7 +61,7 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 	state := "-"
 	if ci.Status != nil {
 		state = ci.Status.State.String()
-		state = strings.Replace(state, "COMPUTE_INSTANCE_STATE_", "", -1)
+		state = strings.TrimPrefix(state, "COMPUTE_INSTANCE_STATE_")
 	}
 	fmt.Fprintf(writer, "ID:\t%s\n", ci.Id)
 	fmt.Fprintf(writer, "Template:\t%s\n", template)
@@ -121,6 +70,55 @@ func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(writer, "Last Restarted At:\t%s\n", ci.Status.GetLastRestartedAt().AsTime().Format(time.RFC3339))
 	}
 	writer.Flush()
+}
+
+func (c *runnerContext) run(cmd *cobra.Command, args []string) error {
+	ref := args[0]
+
+	ctx := cmd.Context()
+
+	c.logger = logging.LoggerFromContext(ctx)
+	c.console = terminal.ConsoleFromContext(ctx)
+
+	cfg, err := config.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg.Address == "" {
+		return fmt.Errorf("there is no configuration, run the 'login' command")
+	}
+
+	conn, err := cfg.Connect(ctx, cmd.Flags())
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC connection: %w", err)
+	}
+	defer conn.Close()
+
+	client := publicv1.NewComputeInstancesClient(conn)
+
+	filter := buildFilter(ref)
+	listResponse, err := client.List(ctx, publicv1.ComputeInstancesListRequest_builder{
+		Filter: &filter,
+		Limit:  proto.Int32(2),
+	}.Build())
+	if err != nil {
+		return fmt.Errorf("failed to describe compute instance: %w", err)
+	}
+	if len(listResponse.GetItems()) == 0 {
+		return fmt.Errorf("compute instance not found: %s", ref)
+	}
+	if len(listResponse.GetItems()) > 1 {
+		return fmt.Errorf("multiple compute instances match '%s', use the ID instead", ref)
+	}
+
+	response, err := client.Get(ctx, publicv1.ComputeInstancesGetRequest_builder{
+		Id: listResponse.GetItems()[0].GetId(),
+	}.Build())
+	if err != nil {
+		return fmt.Errorf("failed to describe compute instance: %w", err)
+	}
+
+	RenderComputeInstance(c.console, response.Object)
 
 	return nil
 }

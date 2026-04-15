@@ -16,8 +16,6 @@ package computeinstance
 import (
 	"bytes"
 	"fmt"
-	"strings"
-	"text/tabwriter"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2/dsl/core"
@@ -27,28 +25,10 @@ import (
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
 )
 
-// formatComputeInstance formats a compute instance for display, matching the logic in the describe command.
+// formatComputeInstance formats a compute instance for display using RenderComputeInstance.
 func formatComputeInstance(ci *publicv1.ComputeInstance) string {
 	var buf bytes.Buffer
-	writer := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
-
-	template := "-"
-	if ci.Spec != nil {
-		template = ci.Spec.Template
-	}
-	state := "-"
-	if ci.Status != nil {
-		state = ci.Status.State.String()
-		state = strings.Replace(state, "COMPUTE_INSTANCE_STATE_", "", -1)
-	}
-	fmt.Fprintf(writer, "ID:\t%s\n", ci.Id)
-	fmt.Fprintf(writer, "Template:\t%s\n", template)
-	fmt.Fprintf(writer, "State:\t%s\n", state)
-	if ci.Status != nil && ci.Status.GetLastRestartedAt() != nil {
-		fmt.Fprintf(writer, "Last Restarted At:\t%s\n", ci.Status.GetLastRestartedAt().AsTime().Format(time.RFC3339))
-	}
-	writer.Flush()
-
+	RenderComputeInstance(&buf, ci)
 	return buf.String()
 }
 
@@ -97,5 +77,37 @@ var _ = Describe("Describe Compute Instance", func() {
 		output := formatComputeInstance(ci)
 		Expect(output).To(MatchRegexp(`State:\s+-`))
 		Expect(output).NotTo(ContainSubstring("Last Restarted At:"))
+	})
+})
+
+var _ = Describe("CEL filter construction", func() {
+	It("should produce valid CEL with == operator and quoted value for a plain name", func() {
+		filter := buildFilter("my-instance")
+		Expect(filter).To(Equal(`this.id == "my-instance" || this.metadata.name == "my-instance"`))
+	})
+
+	It("should escape double quotes in the reference value", func() {
+		filter := buildFilter(`my"instance`)
+		Expect(filter).To(ContainSubstring(`"my\"instance"`))
+	})
+
+	It("should escape backslashes in the reference value", func() {
+		filter := buildFilter(`my\instance`)
+		Expect(filter).To(ContainSubstring(`"my\\instance"`))
+	})
+
+	It("should produce valid CEL for a UUID-style ID", func() {
+		filter := buildFilter("550e8400-e29b-41d4-a716-446655440000")
+		Expect(filter).To(Equal(`this.id == "550e8400-e29b-41d4-a716-446655440000" || this.metadata.name == "550e8400-e29b-41d4-a716-446655440000"`))
+	})
+})
+
+var _ = Describe("Multi-result guard", func() {
+	It("should produce the expected error message", func() {
+		ref := "ambiguous-name"
+		err := fmt.Errorf("multiple compute instances match '%s', use the ID instead", ref)
+		Expect(err.Error()).To(ContainSubstring("multiple compute instances match"))
+		Expect(err.Error()).To(ContainSubstring("ambiguous-name"))
+		Expect(err.Error()).To(ContainSubstring("use the ID instead"))
 	})
 })

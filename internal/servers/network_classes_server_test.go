@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -292,7 +293,8 @@ var _ = Describe("Network classes server", func() {
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(response.GetObject().GetId()).ToNot(Equal(callerProvidedId))
-			Expect(response.GetObject().GetId()).ToNot(BeEmpty())
+			_, err = uuid.Parse(response.GetObject().GetId())
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 })

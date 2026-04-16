@@ -211,6 +211,7 @@ func (s *ClustersServer) List(ctx context.Context,
 			)
 			return nil, grpcstatus.Errorf(grpccodes.Internal, "failed to process clusters")
 		}
+		redactClusterSecrets(publicItem)
 		publicItems[i] = publicItem
 	}
 
@@ -246,6 +247,8 @@ func (s *ClustersServer) Get(ctx context.Context,
 		)
 		return nil, grpcstatus.Errorf(grpccodes.Internal, "failed to process cluster")
 	}
+
+	redactClusterSecrets(publicCluster)
 
 	// Create the public response:
 	response = &publicv1.ClustersGetResponse{}
@@ -294,6 +297,8 @@ func (s *ClustersServer) Create(ctx context.Context,
 		err = grpcstatus.Errorf(grpccodes.Internal, "failed to process cluster")
 		return
 	}
+
+	redactClusterSecrets(createdPublicCluster)
 
 	// Create the public response:
 	response = &publicv1.ClustersCreateResponse{}
@@ -368,6 +373,8 @@ func (s *ClustersServer) Update(ctx context.Context,
 		err = grpcstatus.Errorf(grpccodes.Internal, "failed to process cluster")
 		return
 	}
+
+	redactClusterSecrets(updatedPublicCluster)
 
 	// Create the public response:
 	response = &publicv1.ClustersUpdateResponse{}
@@ -716,4 +723,14 @@ func (s *ClustersServer) getKubeSecret(ctx context.Context, client clnt.Client,
 	}
 	result = object
 	return
+}
+
+// redactClusterSecrets clears sensitive fields from a public cluster before returning it to the client.
+func redactClusterSecrets(cluster *publicv1.Cluster) {
+	if cluster == nil || cluster.Spec == nil {
+		return
+	}
+	if cluster.Spec.HasPullSecret() {
+		cluster.Spec.SetPullSecret("***")
+	}
 }

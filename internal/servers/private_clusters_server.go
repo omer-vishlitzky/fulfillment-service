@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -655,6 +656,23 @@ func (s *PrivateClustersServer) validateAndTransformCluster(ctx context.Context,
 		clusterParameters,
 	)
 	cluster.GetSpec().SetTemplateParameters(actualClusterParameters)
+
+	// Validate network CIDRs if provided:
+	if cluster.GetSpec().HasNetwork() {
+		network := cluster.GetSpec().GetNetwork()
+		if network.HasPodCidr() {
+			if _, _, err := net.ParseCIDR(network.GetPodCidr()); err != nil {
+				return grpcstatus.Errorf(grpccodes.InvalidArgument,
+					"invalid pod_cidr format '%s': %v", network.GetPodCidr(), err)
+			}
+		}
+		if network.HasServiceCidr() {
+			if _, _, err := net.ParseCIDR(network.GetServiceCidr()); err != nil {
+				return grpcstatus.Errorf(grpccodes.InvalidArgument,
+					"invalid service_cidr format '%s': %v", network.GetServiceCidr(), err)
+			}
+		}
+	}
 
 	// Make sure that the templte and the host types of the node sets are reference by their identifiers, as that
 	// is what we want to save to the database.

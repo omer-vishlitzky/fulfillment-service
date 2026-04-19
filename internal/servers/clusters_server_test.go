@@ -1775,5 +1775,64 @@ var _ = Describe("Clusters server", func() {
 			Expect(getResponse.GetObject().GetSpec().HasPullSecret()).To(BeTrue())
 			Expect(getResponse.GetObject().GetSpec().GetPullSecret()).To(Equal("***"))
 		})
+
+		It("Rejects invalid pod_cidr", func() {
+			invalidCIDR := "not-a-cidr"
+			_, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr: &invalidCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("pod_cidr"))
+		})
+
+		It("Rejects invalid service_cidr", func() {
+			validPodCIDR := "10.128.0.0/14"
+			invalidCIDR := "999.999.999.999/99"
+			_, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr:     &validPodCIDR,
+							ServiceCidr: &invalidCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("service_cidr"))
+		})
+
+		It("Accepts valid CIDRs", func() {
+			podCIDR := "10.128.0.0/14"
+			serviceCIDR := "172.30.0.0/16"
+			response, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr:     &podCIDR,
+							ServiceCidr: &serviceCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.GetObject().GetSpec().GetNetwork().GetPodCidr()).To(Equal(podCIDR))
+			Expect(response.GetObject().GetSpec().GetNetwork().GetServiceCidr()).To(Equal(serviceCIDR))
+		})
 	})
 })

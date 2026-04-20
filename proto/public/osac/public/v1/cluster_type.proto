@@ -134,6 +134,39 @@ message ClusterSpec {
   // availability of resources or system errors, the cluster will be marked as degraded, and the details will be in the
   // `DEGRADED` condition.
   map<string, ClusterNodeSet> node_sets = 3;
+
+  // Credentials for authenticating to container image repositories.
+  //
+  // This is write-only: the value is redacted in GET responses. If not provided, the provider's default pull secret
+  // is used.
+  optional string pull_secret = 4;
+
+  // SSH public key installed into the `authorized_keys` file on cluster worker nodes.
+  //
+  // If not provided, the provider's default SSH key is used.
+  optional string ssh_public_key = 5;
+
+  // OCP release image URL that controls the OpenShift version.
+  //
+  // For example: `quay.io/openshift-release-dev/ocp-release:4.17.0-multi`.
+  // If not provided, the template's default release image is used.
+  optional string release_image = 6;
+
+  // Cluster networking configuration.
+  optional ClusterNetwork network = 7;
+}
+
+// Networking configuration for a cluster.
+message ClusterNetwork {
+  // CIDR for the cluster's pod network.
+  //
+  // Must be valid CIDR notation. If not provided, defaults to `10.128.0.0/14`.
+  optional string pod_cidr = 1;
+
+  // CIDR for the cluster's service network.
+  //
+  // Must be valid CIDR notation. If not provided, defaults to `172.30.0.0/16`.
+  optional string service_cidr = 2;
 }
 
 // The status contains the details of the cluster provided by the system.

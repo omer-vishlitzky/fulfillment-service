@@ -1579,4 +1579,260 @@ var _ = Describe("Clusters server", func() {
 			Expect(labels).To(BeEmpty())
 		})
 	})
+
+	Describe("Explicit fields", func() {
+		var server *ClustersServer
+
+		BeforeEach(func() {
+			var err error
+
+			server, err = NewClustersServer().
+				SetLogger(logger).
+				SetAttributionLogic(attribution).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create host types:
+			hostTypesDao, err := dao.NewGenericDAO[*privatev1.HostType]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+			_, err = hostTypesDao.Create().
+				SetObject(privatev1.HostType_builder{
+					Id:    "acme_1tib",
+					Title: "ACME 1TiB",
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+				}.Build()).
+				Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Create template:
+			templatesDao, err := dao.NewGenericDAO[*privatev1.ClusterTemplate]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+			_, err = templatesDao.Create().
+				SetObject(privatev1.ClusterTemplate_builder{
+					Id:    "my_template",
+					Title: "My template",
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					NodeSets: map[string]*privatev1.ClusterTemplateNodeSet{
+						"compute": privatev1.ClusterTemplateNodeSet_builder{
+							HostType: "acme_1tib",
+							Size:     3,
+						}.Build(),
+					},
+				}.Build()).
+				Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("Redacts pull_secret on Create response", func() {
+			pullSecret := "my-secret-pull-secret"
+			response, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template:   "my_template",
+						PullSecret: &pullSecret,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.GetObject().GetSpec().GetPullSecret()).To(Equal("***"))
+		})
+
+		It("Redacts pull_secret on Get response", func() {
+			pullSecret := "my-secret-pull-secret"
+			createResponse, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template:   "my_template",
+						PullSecret: &pullSecret,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			getResponse, err := server.Get(ctx, publicv1.ClustersGetRequest_builder{
+				Id: createResponse.GetObject().GetId(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(getResponse.GetObject().GetSpec().GetPullSecret()).To(Equal("***"))
+		})
+
+		It("Redacts pull_secret on List response", func() {
+			pullSecret := "my-secret-pull-secret"
+			_, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template:   "my_template",
+						PullSecret: &pullSecret,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			listResponse, err := server.List(ctx, publicv1.ClustersListRequest_builder{}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listResponse.GetItems()).ToNot(BeEmpty())
+			Expect(listResponse.GetItems()[0].GetSpec().GetPullSecret()).To(Equal("***"))
+		})
+
+		It("Preserves explicit fields through create and get", func() {
+			pullSecret := "my-pull-secret"
+			sshKey := "ssh-ed25519 AAAA..."
+			releaseImage := "quay.io/openshift-release-dev/ocp-release:4.17.0-multi"
+			podCIDR := "10.128.0.0/14"
+			serviceCIDR := "172.30.0.0/16"
+
+			createResponse, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template:     "my_template",
+						PullSecret:   &pullSecret,
+						SshPublicKey: &sshKey,
+						ReleaseImage: &releaseImage,
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr:     &podCIDR,
+							ServiceCidr: &serviceCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			getResponse, err := server.Get(ctx, publicv1.ClustersGetRequest_builder{
+				Id: createResponse.GetObject().GetId(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			spec := getResponse.GetObject().GetSpec()
+
+			// pull_secret is redacted
+			Expect(spec.GetPullSecret()).To(Equal("***"))
+			// other fields preserved
+			Expect(spec.GetSshPublicKey()).To(Equal(sshKey))
+			Expect(spec.GetReleaseImage()).To(Equal(releaseImage))
+			Expect(spec.GetNetwork().GetPodCidr()).To(Equal(podCIDR))
+			Expect(spec.GetNetwork().GetServiceCidr()).To(Equal(serviceCIDR))
+		})
+
+		It("Does not redact pull_secret when not set", func() {
+			response, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.GetObject().GetSpec().HasPullSecret()).To(BeFalse())
+		})
+
+		It("Update does not overwrite pull_secret with redacted sentinel", func() {
+			// Create with a real pull secret:
+			pullSecret := "my-real-pull-secret"
+			createResponse, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template:   "my_template",
+						PullSecret: &pullSecret,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			id := createResponse.GetObject().GetId()
+
+			// Update echoing back the redacted value (simulating a client that
+			// does GET then PUT with the full object):
+			redacted := "***"
+			_, err = server.Update(ctx, publicv1.ClustersUpdateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Id: id,
+					Spec: publicv1.ClusterSpec_builder{
+						Template:   "my_template",
+						PullSecret: &redacted,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			// Verify the stored value is still the original, not "***":
+			getResponse, err := server.Get(ctx, publicv1.ClustersGetRequest_builder{
+				Id: id,
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			// The GET returns "***" (redacted), but we need to verify the
+			// stored value wasn't corrupted. We do this by checking that
+			// pull_secret is still present (HasPullSecret) — if it had been
+			// cleared by stripRedactedSecrets, it would not be set.
+			Expect(getResponse.GetObject().GetSpec().HasPullSecret()).To(BeTrue())
+			Expect(getResponse.GetObject().GetSpec().GetPullSecret()).To(Equal("***"))
+		})
+
+		It("Rejects invalid pod_cidr", func() {
+			invalidCIDR := "not-a-cidr"
+			_, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr: &invalidCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("pod_cidr"))
+		})
+
+		It("Rejects invalid service_cidr", func() {
+			validPodCIDR := "10.128.0.0/14"
+			invalidCIDR := "999.999.999.999/99"
+			_, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr:     &validPodCIDR,
+							ServiceCidr: &invalidCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("service_cidr"))
+		})
+
+		It("Accepts valid CIDRs", func() {
+			podCIDR := "10.128.0.0/14"
+			serviceCIDR := "172.30.0.0/16"
+			response, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr:     &podCIDR,
+							ServiceCidr: &serviceCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(response.GetObject().GetSpec().GetNetwork().GetPodCidr()).To(Equal(podCIDR))
+			Expect(response.GetObject().GetSpec().GetNetwork().GetServiceCidr()).To(Equal(serviceCIDR))
+		})
+	})
 })

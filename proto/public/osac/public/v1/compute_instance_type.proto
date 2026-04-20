@@ -298,6 +298,12 @@ enum ComputeInstanceConditionType {
   //
   // Mirrors the KubeVirt VirtualMachine Ready condition (virt-launcher readiness probe).
   //
+  // When `status` is `TRUE`, the VirtualMachineInstance is up and the readiness probe
+  // has passed. The instance is reachable via the IP address in `status.ip_address`.
+  //
+  // When `status` is `FALSE`, the instance is not yet reachable (e.g. the VM is still
+  // starting, the readiness probe has not passed, or the VM is stopped/paused).
+  //
   // Possible `reason` values:
   // - `AsExpected`: Normal operational state.
   COMPUTE_INSTANCE_CONDITION_TYPE_READY = 2;

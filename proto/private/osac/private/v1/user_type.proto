@@ -16,15 +16,15 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "google/protobuf/timestamp.proto";
-import "osac/public/v1/condition_status_type.proto";
-import "osac/public/v1/metadata_type.proto";
+import "osac/private/v1/condition_status_type.proto";
+import "osac/private/v1/metadata_type.proto";
 
 // A user in an organization's identity provider.
 message User {
   // Unique identifier of the user.
   string id = 1;
 
-  osac.public.v1.Metadata metadata = 2;
+  osac.private.v1.Metadata metadata = 2;
 
   // Specification of the user.
   UserSpec spec = 3;
@@ -69,7 +69,7 @@ message UserStatus {
 // UserCondition represents a condition of a user.
 message UserCondition {
   string type = 1;
-  osac.public.v1.ConditionStatus status = 2;
+  osac.private.v1.ConditionStatus status = 2;
   google.protobuf.Timestamp last_transition_time = 3;
   optional string reason = 4;
   optional string message = 5;

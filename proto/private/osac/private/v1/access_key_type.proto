@@ -16,14 +16,14 @@ syntax = "proto3";
 package osac.private.v1;
 
 import "google/protobuf/timestamp.proto";
-import "osac/public/v1/metadata_type.proto";
+import "osac/private/v1/metadata_type.proto";
 
 // An access key provides programmatic API access for a user.
 message AccessKey {
   // Unique identifier of the access key.
   string id = 1;
 
-  osac.public.v1.Metadata metadata = 2;
+  osac.private.v1.Metadata metadata = 2;
 
   // Specification of the access key.
   AccessKeySpec spec = 3;

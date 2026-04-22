@@ -63,7 +63,7 @@ func (b *PublicIPsServerBuilder) SetNotifier(value *database.Notifier) *PublicIP
 	return b
 }
 
-// SetAttributionLogic sets the attribution logic to use. This is optional.
+// SetAttributionLogic sets the attribution logic to use. This is mandatory.
 func (b *PublicIPsServerBuilder) SetAttributionLogic(value auth.AttributionLogic) *PublicIPsServerBuilder {
 	b.attributionLogic = value
 	return b
@@ -90,6 +90,10 @@ func (b *PublicIPsServerBuilder) Build() (result *PublicIPsServer, err error) {
 	}
 	if b.tenancyLogic == nil {
 		err = errors.New("tenancy logic is mandatory")
+		return
+	}
+	if b.attributionLogic == nil {
+		err = errors.New("attribution logic is mandatory")
 		return
 	}
 

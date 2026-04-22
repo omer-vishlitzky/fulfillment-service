@@ -96,6 +96,15 @@ var _ = Describe("Public IPs server", func() {
 			Expect(err).To(MatchError("tenancy logic is mandatory"))
 			Expect(server).To(BeNil())
 		})
+
+		It("Fails if attribution logic is not set", func() {
+			server, err := NewPublicIPsServer().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).To(MatchError("attribution logic is mandatory"))
+			Expect(server).To(BeNil())
+		})
 	})
 
 	Describe("Behaviour", func() {

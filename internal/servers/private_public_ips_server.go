@@ -64,7 +64,7 @@ func (b *PrivatePublicIPsServerBuilder) SetNotifier(value *database.Notifier) *P
 	return b
 }
 
-// SetAttributionLogic sets the logic that will be used to determine the creators for objects.
+// SetAttributionLogic sets the logic that will be used to determine the creators for objects. This is mandatory.
 func (b *PrivatePublicIPsServerBuilder) SetAttributionLogic(value auth.AttributionLogic) *PrivatePublicIPsServerBuilder {
 	b.attributionLogic = value
 	return b
@@ -92,6 +92,10 @@ func (b *PrivatePublicIPsServerBuilder) Build() (result *PrivatePublicIPsServer,
 	}
 	if b.tenancyLogic == nil {
 		err = errors.New("tenancy logic is mandatory")
+		return
+	}
+	if b.attributionLogic == nil {
+		err = errors.New("attribution logic is mandatory")
 		return
 	}
 

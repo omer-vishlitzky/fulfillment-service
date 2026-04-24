@@ -126,11 +126,11 @@ func (r *function) run(ctx context.Context, publicIP *privatev1.PublicIP) error 
 	if err != nil {
 		return err
 	}
-	// Calculate which fields the reconciler actually modified and use a field mask
-	// to update only those fields. This prevents overwriting concurrent user changes.
 	updateMask := r.maskCalculator.Calculate(oldPublicIP, publicIP)
+	if len(updateMask.GetPaths()) == 0 {
+		return nil
+	}
 
-	// Only send an update if there are actual changes
 	_, err = r.publicIPsClient.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
 		Object:     publicIP,
 		UpdateMask: updateMask,

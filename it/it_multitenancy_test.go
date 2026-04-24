@@ -2,11 +2,9 @@ package it
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"slices"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,100 +14,70 @@ import (
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
-	"github.com/osac-project/fulfillment-service/internal/testing"
 )
 
 var _ = Describe("Multitenancy authentication error handling", Label("multitenancy", "autherrors"), func() {
+	var ctx context.Context
+
+	BeforeEach(func() {
+		ctx = context.Background()
+	})
+
 	DescribeTable(
-		"returns error when authenticating with invalid token",
-		func(testUrl string) {
-			invalidToken := testing.MakeTokenString("test", 0)
-
-			req, err := http.NewRequest("GET", testUrl, nil)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Set invalid token in request header
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", invalidToken))
-
-			// Make request with invalid token
-			resp, err := http.Get(testUrl)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Check that unauthorized status code is returned
+		"Returns error when authenticating with invalid token",
+		func(endpoint string) {
 			Eventually(func(g Gomega) {
-				resp, err = http.Get(testUrl)
+				// Prepare a request with an invalid token:
+				request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(resp).ToNot(BeNil())
-				Expect(resp.StatusCode).To(BeNumerically(">=", http.StatusUnauthorized))
-				g.Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
-			}).WithTimeout(100 * time.Millisecond).WithPolling(10 * time.Millisecond).Should(Succeed())
+				request.Header.Set("Authorization", "Bearer junk")
 
-			defer resp.Body.Close()
+				// Send the request:
+				response, err := tool.ExternalView().AnonymousClient().Do(request)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(response).ToNot(BeNil())
+				defer response.Body.Close()
 
-			// Check that permission denied error is returned in response body
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(body).To(ContainSubstring("permission denied"))
+				// Verify that the request is unauthorized:
+				g.Expect(response.StatusCode).To(Equal(http.StatusUnauthorized))
+
+				// Verify that error is returned in the response body:
+				body, err := io.ReadAll(response.Body)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(body).To(ContainSubstring("permission denied"))
+			}).Should(Succeed())
 		},
-		Entry("clusters", fmt.Sprintf("https://%s/api/fulfillment/v1/clusters", serviceAddr)),
-		Entry("cluster templates", fmt.Sprintf("https://%s/api/fulfillment/v1/cluster_templates", serviceAddr)),
-		Entry("host types", fmt.Sprintf("https://%s/api/fulfillment/v1/host_types", serviceAddr)),
+		Entry("clusters", "/api/fulfillment/v1/clusters"),
+		Entry("Cluster templates", "/api/fulfillment/v1/cluster_templates"),
+		Entry("Host types", "/api/fulfillment/v1/host_types"),
 	)
 
 	DescribeTable(
-		"returns error when user is not authenticated",
-		func(testUrl string) {
-			var testUser string
-			var testTenant string
-
-			// Get a random user and tenant from map of users
-			for user, tenant := range ServiceAccountTenants {
-				testUser = user
-				testTenant = tenant
-				break
-			}
-
-			// Check that requests can be made with valid token
-			tokenSource, err := tool.makeKubernetesTokenSource(context.Background(), testUser, testTenant)
-			Expect(err).ToNot(HaveOccurred())
-
-			req, err := http.NewRequest("GET", testUrl, nil)
-			Expect(err).ToNot(HaveOccurred())
-
-			// Set token in request header
-			token, err := tokenSource.Token(context.Background())
-			Expect(err).ToNot(HaveOccurred())
-			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token.Access))
-
-			// Make request with valid token
+		"Returns error when user is not authenticated",
+		func(endpoint string) {
 			Eventually(func(g Gomega) {
-				resp, err := http.DefaultClient.Do(req)
+				// Prepare a request without a token:
+				req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			}).WithTimeout(100 * time.Millisecond).WithPolling(10 * time.Millisecond).Should(Succeed())
 
-			// Make request with invalid token
-			var resp *http.Response
-
-			// Check that unauthorized status code is returned
-			Eventually(func(g Gomega) {
-				resp, err = http.Get(testUrl)
+				// Send the request:
+				resp, err := tool.ExternalView().AnonymousClient().Do(req)
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(resp).ToNot(BeNil())
-				Expect(resp.StatusCode).To(BeNumerically(">=", http.StatusUnauthorized))
+				defer resp.Body.Close()
+
+				// Verify that the request is unauthorized:
 				g.Expect(resp.StatusCode).To(Equal(http.StatusUnauthorized))
-			}).WithTimeout(100 * time.Millisecond).WithPolling(10 * time.Millisecond).Should(Succeed())
 
-			defer resp.Body.Close()
-
-			// Check that permission denied error is returned in response body
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(body).To(ContainSubstring("permission denied"))
+				// Verify that error is returned in the response body:
+				body, err := io.ReadAll(resp.Body)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(body).To(ContainSubstring("permission denied"))
+			}).Should(Succeed())
 		},
-		Entry("clusters", fmt.Sprintf("https://%s/api/fulfillment/v1/clusters", serviceAddr)),
-		Entry("cluster templates", fmt.Sprintf("https://%s/api/fulfillment/v1/cluster_templates", serviceAddr)),
-		Entry("host types", fmt.Sprintf("https://%s/api/fulfillment/v1/host_types", serviceAddr)),
+		Entry("Clusters", "/api/fulfillment/v1/clusters"),
+		Entry("Cluster templates", "/api/fulfillment/v1/cluster_templates"),
+		Entry("Host types", "/api/fulfillment/v1/host_types"),
 	)
 })
 
@@ -144,7 +112,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				tenantClusterMapping = make(map[string][]string)
 
 				// Create host type for testing
-				hostTypesClient := privatev1.NewHostTypesClient(tool.AdminConn())
+				hostTypesClient := privatev1.NewHostTypesClient(tool.InternalView().AdminConn())
 				hostTypeId := "basic-sa-isolation-hosttype"
 				_, err := hostTypesClient.Create(ctx, privatev1.HostTypesCreateRequest_builder{
 					Object: privatev1.HostType_builder{
@@ -161,7 +129,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 
 				// Create cluster template for testing
 				templateId := "basic-sa-isolation-template"
-				templatesClient := privatev1.NewClusterTemplatesClient(tool.adminConn)
+				templatesClient := privatev1.NewClusterTemplatesClient(tool.InternalView().AdminConn())
 				_, err = templatesClient.Create(ctx, privatev1.ClusterTemplatesCreateRequest_builder{
 					Object: privatev1.ClusterTemplate_builder{
 						Id: templateId,
@@ -185,7 +153,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				for user, tenant := range ServiceAccountTenants {
 					tokenSource, err := tool.makeKubernetesTokenSource(ctx, user, tenant)
 					Expect(err).ToNot(HaveOccurred())
-					conn, err := tool.makeGrpcConn(tokenSource)
+					conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 					Expect(err).ToNot(HaveOccurred())
 
 					clustersClient := publicv1.NewClustersClient(conn)
@@ -211,7 +179,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				for user, tenant := range ServiceAccountTenants {
 					tokenSource, err := tool.makeKubernetesTokenSource(ctx, user, tenant)
 					Expect(err).ToNot(HaveOccurred())
-					conn, err := tool.makeGrpcConn(tokenSource)
+					conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 					Expect(err).ToNot(HaveOccurred())
 
 					response := listClusters(ctx, conn)
@@ -230,7 +198,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				for user, tenant := range ServiceAccountTenants {
 					tokenSource, err := tool.makeKubernetesTokenSource(ctx, user, tenant)
 					Expect(err).ToNot(HaveOccurred())
-					conn, err := tool.makeGrpcConn(tokenSource)
+					conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 					Expect(err).ToNot(HaveOccurred())
 
 					response := listClusters(ctx, conn)
@@ -251,7 +219,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 			It("assigned the correct tenant after creation", func() {
 				for tenant, clusters := range tenantClusterMapping {
 					for _, cluster := range clusters {
-						clustersClient := privatev1.NewClustersClient(tool.AdminConn())
+						clustersClient := privatev1.NewClustersClient(tool.InternalView().AdminConn())
 
 						clusterResponse, err := clustersClient.Get(ctx, privatev1.ClustersGetRequest_builder{
 							Id: cluster,
@@ -275,7 +243,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 
 							tokenSource, err := tool.makeKubernetesTokenSource(ctx, user, userTenant)
 							Expect(err).ToNot(HaveOccurred())
-							conn, err := tool.makeGrpcConn(tokenSource)
+							conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 							Expect(err).ToNot(HaveOccurred())
 
 							clustersClient := publicv1.NewClustersClient(conn)
@@ -352,7 +320,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 
 				// Create host type for testing
 				hostTypeId := "basic-oidc-isolation-hosttype"
-				hostTypesClient := privatev1.NewHostTypesClient(tool.adminConn)
+				hostTypesClient := privatev1.NewHostTypesClient(tool.InternalView().AdminConn())
 				_, err := hostTypesClient.Create(ctx, privatev1.HostTypesCreateRequest_builder{
 					Object: privatev1.HostType_builder{
 						Id: hostTypeId,
@@ -368,7 +336,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 
 				// Create cluster template for testing
 				templateId := "basic-oidc-isolation-template"
-				templatesClient := privatev1.NewClusterTemplatesClient(tool.adminConn)
+				templatesClient := privatev1.NewClusterTemplatesClient(tool.InternalView().AdminConn())
 				_, err = templatesClient.Create(ctx, privatev1.ClusterTemplatesCreateRequest_builder{
 					Object: privatev1.ClusterTemplate_builder{
 						Id: templateId,
@@ -392,7 +360,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				for user, tenants := range OIDCTenants {
 					tokenSource, err := tool.makeKeycloakTokenSource(ctx, user, usersPassword)
 					Expect(err).ToNot(HaveOccurred())
-					conn, err := tool.makeGrpcConn(tokenSource)
+					conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 					Expect(err).ToNot(HaveOccurred())
 
 					clustersClient := publicv1.NewClustersClient(conn)
@@ -420,7 +388,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				for user, tenants := range OIDCTenants {
 					tokenSource, err := tool.makeKeycloakTokenSource(ctx, user, usersPassword)
 					Expect(err).ToNot(HaveOccurred())
-					conn, err := tool.makeGrpcConn(tokenSource)
+					conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 					Expect(err).ToNot(HaveOccurred())
 
 					response := listClusters(ctx, conn)
@@ -440,7 +408,7 @@ var _ = Describe("Multitenancy basic tenant isolation", Ordered, Label("multiten
 				for user, tenants := range OIDCTenants {
 					tokenSource, err := tool.makeKeycloakTokenSource(ctx, user, usersPassword)
 					Expect(err).ToNot(HaveOccurred())
-					conn, err := tool.makeGrpcConn(tokenSource)
+					conn, err := tool.makeGrpcConn(externalServiceAddr, tokenSource)
 					Expect(err).ToNot(HaveOccurred())
 
 					response := listClusters(ctx, conn)
@@ -479,7 +447,7 @@ func listClusters(ctx context.Context, conn *grpc.ClientConn) *publicv1.Clusters
 }
 
 func deleteCluster(ctx context.Context, clusterId string) error {
-	clusterClient := privatev1.NewClustersClient(tool.AdminConn())
+	clusterClient := privatev1.NewClustersClient(tool.InternalView().AdminConn())
 	_, err := clusterClient.Delete(ctx, privatev1.ClustersDeleteRequest_builder{
 		Id: clusterId,
 	}.Build())

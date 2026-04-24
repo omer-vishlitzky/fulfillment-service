@@ -27,7 +27,8 @@ The following table lists the configurable parameters of the chart and their def
 | `certs.issuerRef.kind`     | Kind of _cert-manager_ issuer                                      | `ClusterIssuer`                                                |
 | `certs.issuerRef.name`     | Name of _cert-manager_ issuer                                      | None                                                           |
 | `certs.caBundle.configMap` | Name of configmap containing trusted CA certificates in PEM format | Required                                                       |
-| `hostname`                 | Hostname used to access the service from outside the cluster       | None                                                           |
+| `externalHostname`         | Hostname used to access the public API from outside the cluster (see note below) | None                                                |
+| `internalHostname`         | Hostname used to access both the public and private APIs (see note below)        | None                                                |
 | `auth.issuerUrl`           | OAuth issuer URL for authentication                                | `https://keycloak.keycloak.svc.cluster.local:8000/realms/osac` |
 | `log.level`                | Log level for all components (debug, info, warn, error)            | `info`                                                         |
 | `log.headers`              | Enable logging of HTTP/gRPC headers                                | `false`                                                        |
@@ -35,6 +36,15 @@ The following table lists the configurable parameters of the chart and their def
 | `images.service`           | Fulfillment service container image                                | `ghcr.io/osac/fulfillment-service:main`                        |
 | `images.envoy`             | Envoy proxy container image                                        | `docker.io/envoyproxy/envoy:v1.37.1`                           |
 | `database.connection`      | List of sources for database connection parameters (see below)     | `[]`                                                           |
+
+**Note on `internalHostname`:** The internal API exposes both the public and private APIs. The
+administrator is responsible for ensuring that this hostname is accessible only from the internal
+network and not accessible to regular users. This isn't strictly required because access is subject
+to authentication and authorization (regular users won't be authorized to use the private API), but
+it is good practice to restrict network-level access as an additional layer of defense. When
+`internalHostname` is not set, no Route (OpenShift) or TLSRoute (Kind) will be created for the
+internal API, allowing the administrator to manually configure ingress with custom settings such as
+a dedicated load balancer or a specific IP address.
 
 ### Example custom values
 
@@ -50,7 +60,8 @@ certs:
   caBundle:
     configMap: my-ca-bundle
 
-hostname: fulfillment-service.example.com
+externalHostname: fulfillment-service.example.com
+internalHostname: fulfillment-internal.example.com
 
 auth:
   issuerUrl: https://keycloak.example.com/realms/osac

@@ -249,13 +249,15 @@ through `127.0.0.1:8000` which is exposed by the Kind cluster.
 For the tests to work correctly, the following host names must resolve to `127.0.0.1`:
 
 - `keycloak.keycloak.svc.cluster.local` - The Keycloak identity provider used for authentication.
-- `fulfillment-api.osac.svc.cluster.local` - The fulfillment service API.
+- `fulfillment-api.osac.svc.cluster.local` - The fulfillment service external API.
+- `fulfillment-internal-api.osac.svc.cluster.local` - The fulfillment service internal API.
 
 Add the following entries to your `/etc/hosts` file:
 
-```
+```text
 127.0.0.1 keycloak.keycloak.svc.cluster.local
 127.0.0.1 fulfillment-api.osac.svc.cluster.local
+127.0.0.1 fulfillment-internal-api.osac.svc.cluster.local
 ```
 
 To run the integration tests:

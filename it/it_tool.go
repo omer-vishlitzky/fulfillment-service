@@ -89,22 +89,31 @@ type ToolBuilder struct {
 // Tool is an instance of the integration test tool that sets up the test environment. Don't create instances of this
 // directly, use the NewTool function instead.
 type Tool struct {
-	logger          *slog.Logger
-	projectDir      string
-	crdFiles        []string
-	keepKind        bool
-	keepService     bool
-	deployMode      string
-	debug           bool
-	tmpDir          string
-	cluster         *testing.Kind
-	kubeClient      crclient.Client
-	kubeClientSet   *kubernetes.Clientset
-	caPool          *x509.CertPool
-	kcFile          string
+	logger        *slog.Logger
+	projectDir    string
+	crdFiles      []string
+	keepKind      bool
+	keepService   bool
+	deployMode    string
+	debug         bool
+	tmpDir        string
+	cluster       *testing.Kind
+	kubeClient    crclient.Client
+	kubeClientSet *kubernetes.Clientset
+	caPool        *x509.CertPool
+	kcFile        string
+	internalView  *ToolView
+	externalView  *ToolView
+}
+
+// ToolView contains the gRPC connections and HTTP clients that can be used to connect to the cluster. This is a
+// separate type to simplify having two copies: one for the internal API and another one for the external API.
+type ToolView struct {
+	anonymousConn   *grpc.ClientConn
 	emergencyConn   *grpc.ClientConn
 	adminConn       *grpc.ClientConn
 	userConn        *grpc.ClientConn
+	anonymousClient *http.Client
 	emergencyClient *http.Client
 	adminClient     *http.Client
 	userClient      *http.Client
@@ -244,7 +253,11 @@ func (t *Tool) Setup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = t.checkAddress(ctx, serviceAddr)
+	err = t.checkAddress(ctx, externalServiceAddr)
+	if err != nil {
+		return err
+	}
+	err = t.checkAddress(ctx, internalServiceAddr)
 	if err != nil {
 		return err
 	}
@@ -971,9 +984,19 @@ func (t *Tool) deployService(ctx context.Context, imageRef string) error {
 
 func (t *Tool) deployServiceWithHelm(ctx context.Context, imageRef string) error {
 	// Prepare the values:
+	externalHostname, _, err := net.SplitHostPort(externalServiceAddr)
+	if err != nil {
+		return fmt.Errorf("failed to extract host from external service address: %w", err)
+	}
+	internalHostname, _, err := net.SplitHostPort(internalServiceAddr)
+	if err != nil {
+		return fmt.Errorf("failed to extract host from internal service address: %w", err)
+	}
 	valuesData := map[string]any{
-		"variant": "kind",
-		"debug":   t.debug,
+		"variant":          "kind",
+		"debug":            t.debug,
+		"externalHostname": externalHostname,
+		"internalHostname": internalHostname,
 		"log": map[string]any{
 			"level":   "debug",
 			"headers": true,
@@ -1240,23 +1263,50 @@ func (t *Tool) createClients(ctx context.Context) error {
 	}
 
 	// Create gRPC clients:
-	t.emergencyConn, err = t.makeGrpcConn(emergencyTokenSource)
+	t.internalView = &ToolView{}
+	t.internalView.anonymousConn, err = t.makeGrpcConn(internalServiceAddr, nil)
 	if err != nil {
 		return err
 	}
-	t.adminConn, err = t.makeGrpcConn(adminTokenSource)
+	t.internalView.emergencyConn, err = t.makeGrpcConn(internalServiceAddr, emergencyTokenSource)
 	if err != nil {
 		return err
 	}
-	t.userConn, err = t.makeGrpcConn(userTokenSource)
+	t.internalView.adminConn, err = t.makeGrpcConn(internalServiceAddr, adminTokenSource)
+	if err != nil {
+		return err
+	}
+	t.internalView.userConn, err = t.makeGrpcConn(internalServiceAddr, userTokenSource)
+	if err != nil {
+		return err
+	}
+	t.externalView = &ToolView{}
+	t.externalView.anonymousConn, err = t.makeGrpcConn(externalServiceAddr, nil)
+	if err != nil {
+		return err
+	}
+	t.externalView.emergencyConn, err = t.makeGrpcConn(externalServiceAddr, emergencyTokenSource)
+	if err != nil {
+		return err
+	}
+	t.externalView.adminConn, err = t.makeGrpcConn(externalServiceAddr, adminTokenSource)
+	if err != nil {
+		return err
+	}
+	t.externalView.userConn, err = t.makeGrpcConn(externalServiceAddr, userTokenSource)
 	if err != nil {
 		return err
 	}
 
 	// Create HTTP clients:
-	t.emergencyClient = t.makeHttpClient(emergencyTokenSource)
-	t.adminClient = t.makeHttpClient(adminTokenSource)
-	t.userClient = t.makeHttpClient(userTokenSource)
+	t.internalView.anonymousClient = t.makeHttpClient(internalServiceAddr, nil)
+	t.internalView.emergencyClient = t.makeHttpClient(internalServiceAddr, emergencyTokenSource)
+	t.internalView.adminClient = t.makeHttpClient(internalServiceAddr, adminTokenSource)
+	t.internalView.userClient = t.makeHttpClient(internalServiceAddr, userTokenSource)
+	t.externalView.anonymousClient = t.makeHttpClient(externalServiceAddr, nil)
+	t.externalView.emergencyClient = t.makeHttpClient(externalServiceAddr, emergencyTokenSource)
+	t.externalView.adminClient = t.makeHttpClient(externalServiceAddr, adminTokenSource)
+	t.externalView.userClient = t.makeHttpClient(externalServiceAddr, userTokenSource)
 
 	return nil
 }
@@ -1336,27 +1386,35 @@ func (t *Tool) makeKeycloakTokenSource(ctx context.Context, username, password s
 	return
 }
 
-func (t *Tool) makeGrpcConn(tokenSource auth.TokenSource) (result *grpc.ClientConn, err error) {
+// makeGrpcConn creates a gRPC connection that automatically adds the token to the request.
+func (t *Tool) makeGrpcConn(addr string, tokenSource auth.TokenSource) (result *grpc.ClientConn, err error) {
 	userAgent := fmt.Sprintf("%s/%s", userAgent, version.Get())
 	result, err = network.NewGrpcClient().
 		SetLogger(t.logger).
 		SetCaPool(t.caPool).
-		SetAddress(serviceAddr).
+		SetAddress(addr).
 		SetTokenSource(tokenSource).
 		SetUserAgent(userAgent).
 		Build()
 	return
 }
 
-func (t *Tool) makeHttpClient(tokenSource auth.TokenSource) *http.Client {
+// makeHttpClient creates an HTTP client that automatically adds the scheme, host and token to the request. Users of the
+// client only need to provide the URL path, and other headers as needed.
+func (t *Tool) makeHttpClient(addr string, tokenSource auth.TokenSource) *http.Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			RootCAs: t.caPool,
 		},
 	}
-	return &http.Client{
-		Transport: ghttp.RoundTripperFunc(
-			func(request *http.Request) (response *http.Response, err error) {
+	tripper := ghttp.RoundTripperFunc(
+		func(request *http.Request) (response *http.Response, err error) {
+			// Replace the scheme and host, so that users of the client only need to provide the path:
+			request.URL.Scheme = "https"
+			request.URL.Host = addr
+
+			// Add the token if there is a token source available:
+			if tokenSource != nil {
 				token, err := tokenSource.Token(request.Context())
 				if err != nil {
 					return nil, err
@@ -1365,10 +1423,15 @@ func (t *Tool) makeHttpClient(tokenSource auth.TokenSource) *http.Client {
 					"Authorization",
 					fmt.Sprintf("Bearer %s", token.Access),
 				)
-				response, err = transport.RoundTrip(request)
-				return
-			},
-		),
+			}
+
+			// Forward the request:
+			response, err = transport.RoundTrip(request)
+			return
+		},
+	)
+	return &http.Client{
+		Transport: tripper,
 	}
 }
 
@@ -1382,7 +1445,7 @@ func (t *Tool) waitForServersReady(ctx context.Context) error {
 
 func (t *Tool) waitForGrpcServerReady(ctx context.Context) error {
 	t.logger.DebugContext(ctx, "Waiting for gRPC server to be ready")
-	client := publicv1.NewCapabilitiesClient(t.adminConn)
+	client := publicv1.NewCapabilitiesClient(t.externalView.adminConn)
 	request := publicv1.CapabilitiesGetRequest_builder{}.Build()
 	backOff := backoff.NewExponentialBackOff()
 	backOff.InitialInterval = 1 * time.Second
@@ -1403,8 +1466,12 @@ func (t *Tool) waitForGrpcServerReady(ctx context.Context) error {
 
 func (t *Tool) waitForRestGatewayReady(ctx context.Context) error {
 	t.logger.DebugContext(ctx, "Waiting for REST gateway to be ready")
-	endpoint := fmt.Sprintf("https://%s/api/fulfillment/v1/capabilities", serviceAddr)
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		"/api/fulfillment/v1/capabilities",
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create REST health check request: %w", err)
 	}
@@ -1413,7 +1480,7 @@ func (t *Tool) waitForRestGatewayReady(ctx context.Context) error {
 	backOff.MaxInterval = 10 * time.Second
 	backOff.MaxElapsedTime = 60 * time.Second
 	return backoff.Retry(func() error {
-		response, err := t.adminClient.Do(request)
+		response, err := t.externalView.adminClient.Do(request)
 		if err != nil {
 			t.logger.DebugContext(
 				ctx,
@@ -1468,7 +1535,7 @@ func (t *Tool) registerHub(ctx context.Context) error {
 	}
 
 	// Create the hubs client:
-	hubsClient := privatev1.NewHubsClient(t.adminConn)
+	hubsClient := privatev1.NewHubsClient(t.internalView.adminConn)
 
 	// Wait for Authorino authorization to be ready:
 	for range 30 {
@@ -1503,23 +1570,17 @@ func (t *Tool) registerHub(ctx context.Context) error {
 func (t *Tool) Cleanup(ctx context.Context) error {
 	var errs []error
 
-	// Close gRPC connections:
-	if t.emergencyConn != nil {
-		err := t.emergencyConn.Close()
+	// Close gRPC views:
+	if t.internalView != nil {
+		err := t.internalView.Close()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to close emergency adminstrator connection: %w", err))
+			errs = append(errs, fmt.Errorf("failed to close internal gRPC view: %w", err))
 		}
 	}
-	if t.adminConn != nil {
-		err := t.adminConn.Close()
+	if t.externalView != nil {
+		err := t.externalView.Close()
 		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to close administrator connection: %w", err))
-		}
-	}
-	if t.userConn != nil {
-		err := t.userConn.Close()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed to close regular connection: %w", err))
+			errs = append(errs, fmt.Errorf("failed to close external gRPC view: %w", err))
 		}
 	}
 
@@ -1576,34 +1637,77 @@ func (t *Tool) KubeClientSet() *kubernetes.Clientset {
 	return t.kubeClientSet
 }
 
-// EmergencyConn returns the gRPC client connection for the emergency administration service account.
-func (t *Tool) EmergencyConn() *grpc.ClientConn {
-	return t.emergencyConn
+// InternalView returns the view of the internal API.
+func (t *Tool) InternalView() *ToolView {
+	return t.internalView
 }
 
-// AdminConn returns the gRPC client connection for admnistration user.
-func (t *Tool) AdminConn() *grpc.ClientConn {
-	return t.adminConn
+// ExternalView returns the view of the external API.
+func (t *Tool) ExternalView() *ToolView {
+	return t.externalView
 }
 
-// UserConn returns the gRPC client connection for the regular user.
-func (t *Tool) UserConn() *grpc.ClientConn {
-	return t.userConn
+// AnonymousConn returns the gRPC connection for the anonymous user.
+func (v *ToolView) AnonymousConn() *grpc.ClientConn {
+	return v.anonymousConn
+}
+
+// EmergencyConn returns the gRPC connection for the emergency administration service account.
+func (v *ToolView) EmergencyConn() *grpc.ClientConn {
+	return v.emergencyConn
+}
+
+// AdminConn returns the gRPC connection for the administrator user.
+func (v *ToolView) AdminConn() *grpc.ClientConn {
+	return v.adminConn
+}
+
+// UserConn returns the gRPC connection for the regular user.
+func (v *ToolView) UserConn() *grpc.ClientConn {
+	return v.userConn
+}
+
+// AnonymousClient returns the HTTP client for the anonymous user.
+func (v *ToolView) AnonymousClient() *http.Client {
+	return v.anonymousClient
 }
 
 // EmergencyClient returns the HTTP client for the emergency administration service account.
-func (t *Tool) EmergencyClient() *http.Client {
-	return t.emergencyClient
+func (v *ToolView) EmergencyClient() *http.Client {
+	return v.emergencyClient
 }
 
 // AdminClient returns the HTTP client for the administrator user.
-func (t *Tool) AdminClient() *http.Client {
-	return t.adminClient
+func (v *ToolView) AdminClient() *http.Client {
+	return v.adminClient
 }
 
 // UserClient returns the HTTP client for the regular user.
-func (t *Tool) UserClient() *http.Client {
-	return t.userClient
+func (v *ToolView) UserClient() *http.Client {
+	return v.userClient
+}
+
+// Close closes the gRPC connections and HTTP clients of the view.
+func (v *ToolView) Close() error {
+	closeConn := func(conn *grpc.ClientConn) error {
+		if conn != nil {
+			return conn.Close()
+		}
+		return nil
+	}
+	closeClient := func(client *http.Client) error {
+		return nil
+	}
+	return errors.Join(
+		closeConn(v.anonymousConn),
+		closeConn(v.emergencyConn),
+		closeConn(v.adminConn),
+		closeConn(v.userConn),
+		closeClient(v.anonymousClient),
+		closeClient(v.emergencyClient),
+		closeClient(v.adminClient),
+		closeClient(v.userClient),
+	)
 }
 
 // ProjectDir returns the project directory.
@@ -1631,8 +1735,9 @@ const userAgent = "fulfillment-it-tool"
 
 // Service host name and address:
 const (
-	keycloakAddr = "keycloak.keycloak.svc.cluster.local:8000"
-	serviceAddr  = "fulfillment-api.osac.svc.cluster.local:8000"
+	keycloakAddr        = "keycloak.keycloak.svc.cluster.local:8000"
+	externalServiceAddr = "fulfillment-api.osac.svc.cluster.local:8000"
+	internalServiceAddr = "fulfillment-internal-api.osac.svc.cluster.local:8000"
 )
 
 // Names of the database-related Kubernetes resources.

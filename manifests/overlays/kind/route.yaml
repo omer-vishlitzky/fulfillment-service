@@ -28,3 +28,23 @@ spec:
   - backendRefs:
     - name: fulfillment-api
       port: 8000
+
+---
+
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: TLSRoute
+metadata:
+  name: fulfillment-internal-api
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    namespace: envoy-gateway
+    name: default
+    sectionName: tls
+  hostnames:
+  - fulfillment-internal-api.osac.svc.cluster.local
+  rules:
+  - backendRefs:
+    - name: fulfillment-internal-api
+      port: 8001

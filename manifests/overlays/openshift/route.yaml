@@ -20,6 +20,21 @@ spec:
     kind: Service
     name: fulfillment-api
   port:
-    targetPort: api
+    targetPort: external-api
+  tls:
+    termination: passthrough
+
+---
+
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: fulfillment-internal-api
+spec:
+  to:
+    kind: Service
+    name: fulfillment-internal-api
+  port:
+    targetPort: internal-api
   tls:
     termination: passthrough

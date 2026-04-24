@@ -46,9 +46,12 @@ spec:
         - --config-path
         - /etc/envoy/envoy.yaml
         ports:
-        - name: api
+        - name: external-api
           protocol: TCP
           containerPort: 8000
+        - name: internal-api
+          protocol: TCP
+          containerPort: 8001
         - name: metrics
           protocol: TCP
           containerPort: 8002

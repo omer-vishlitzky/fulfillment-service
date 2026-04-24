@@ -32,7 +32,7 @@ var _ = Describe("Private host types", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		client = privatev1.NewHostTypesClient(tool.AdminConn())
+		client = privatev1.NewHostTypesClient(tool.InternalView().AdminConn())
 	})
 
 	It("Can get the list of host types", func() {

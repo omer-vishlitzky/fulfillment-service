@@ -18,13 +18,33 @@ metadata:
   namespace: {{ .Release.Namespace }}
   name: fulfillment-api
 spec:
+  host: {{ .Values.externalHostname }}
   to:
     kind: Service
     name: fulfillment-api
   port:
-    targetPort: api
+    targetPort: external-api
   tls:
     termination: passthrough
+
+{{ if .Values.internalHostname }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: fulfillment-internal-api
+spec:
+  host: {{ .Values.internalHostname }}
+  to:
+    kind: Service
+    name: fulfillment-internal-api
+  port:
+    targetPort: internal-api
+  tls:
+    termination: passthrough
+{{ end }}
+
 {{ end }}
 
 {{ if eq .Values.variant "kind" }}
@@ -46,4 +66,27 @@ spec:
   - backendRefs:
     - name: fulfillment-api
       port: 8000
+
+{{ if .Values.internalHostname }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: TLSRoute
+metadata:
+  namespace: {{ .Release.Namespace }}
+  name: fulfillment-internal-api
+spec:
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    namespace: envoy-gateway
+    name: default
+    sectionName: tls
+  hostnames:
+  - {{ include "fulfillment-internal-api.hostname" . }}
+  rules:
+  - backendRefs:
+    - name: fulfillment-internal-api
+      port: 8001
+{{ end }}
+
 {{ end }}

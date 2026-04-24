@@ -57,7 +57,8 @@ kind delete cluster --name fulfillment-service-it
 
 Requires `/etc/hosts` entries:
 - `127.0.0.1 keycloak.keycloak.svc.cluster.local`
-- `127.0.0.1 fulfillment-api.innabox.svc.cluster.local`
+- `127.0.0.1 fulfillment-api.osac.svc.cluster.local`
+- `127.0.0.1 fulfillment-internal-api.osac.svc.cluster.local`
 
 ### Running Locally
 

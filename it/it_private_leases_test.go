@@ -34,7 +34,7 @@ var _ = Describe("Private leases", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		client = privatev1.NewLeasesClient(tool.AdminConn())
+		client = privatev1.NewLeasesClient(tool.InternalView().AdminConn())
 	})
 
 	It("Can delete a lease", func() {

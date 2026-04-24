@@ -32,10 +32,20 @@ certs:
   caBundle:
     configMap:
 
-# This defines the hostname used to access the service from outside the cluster. The default is to use the hostname of
-# the Kubernetes service. For example, if the application is deployed in a namespace named 'osac' then the default
+# This defines the hostname used to access the public API from outside the cluster. The default is to use the hostname
+# of the Kubernetes service. For example, if the application is deployed in a namespace named 'osac' then the default
 # hostname will be 'fulfillment-api.osac.svc.cluster.local'.
-hostname:
+externalHostname:
+
+# This defines the hostname used to access both the public and private APIs from outside the cluster. It is typically
+# accessible only from the administrator's internal network. The default is to use the hostname of the Kubernetes
+# service. For example, if the application is deployed in a namespace named 'osac' then the default hostname will be
+# 'fulfillment-internal-api.osac.svc.cluster.local'.
+#
+# The administrator is responsible for ensuring that this hostname is accessible only from the internal network and not
+# accessible to regular users. This isn't strictly required because access is subject to authentication and
+# authorization, but it is good practice to restrict network-level access as an additional layer of defense.
+internalHostname:
 
 # Authentication and authorization configuration:
 auth:

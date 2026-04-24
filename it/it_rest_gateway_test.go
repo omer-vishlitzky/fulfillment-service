@@ -36,8 +36,8 @@ var _ = Describe("REST gateway", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		templatesClient = privatev1.NewClusterTemplatesClient(tool.AdminConn())
-		hostTypesClient = privatev1.NewHostTypesClient(tool.AdminConn())
+		templatesClient = privatev1.NewClusterTemplatesClient(tool.InternalView().AdminConn())
+		hostTypesClient = privatev1.NewHostTypesClient(tool.InternalView().AdminConn())
 	})
 
 	It("Should use protobuf field names in JSON representation", func() {
@@ -102,10 +102,14 @@ var _ = Describe("REST gateway", func() {
 		})
 
 		// Retrieve the template via REST API:
-		url := fmt.Sprintf("https://%s/api/fulfillment/v1/cluster_templates/%s", serviceAddr, templateID)
-		request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			fmt.Sprintf("/api/fulfillment/v1/cluster_templates/%s", templateID),
+			nil,
+		)
 		Expect(err).ToNot(HaveOccurred())
-		response, err := tool.UserClient().Do(request)
+		response, err := tool.ExternalView().UserClient().Do(request)
 		Expect(err).ToNot(HaveOccurred())
 		defer response.Body.Close()
 		Expect(response.StatusCode).To(Equal(http.StatusOK))
@@ -181,10 +185,14 @@ var _ = Describe("REST gateway", func() {
 		})
 
 		// Retrieve the template via private REST API:
-		url := fmt.Sprintf("https://%s/api/private/v1/cluster_templates/%s", serviceAddr, templateID)
-		request, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			fmt.Sprintf("/api/private/v1/cluster_templates/%s", templateID),
+			nil,
+		)
 		Expect(err).ToNot(HaveOccurred())
-		response, err := tool.AdminClient().Do(request)
+		response, err := tool.InternalView().AdminClient().Do(request)
 		Expect(err).ToNot(HaveOccurred())
 		defer response.Body.Close()
 		Expect(response.StatusCode).To(Equal(http.StatusOK))

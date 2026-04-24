@@ -24,6 +24,9 @@ spec:
   - fulfillment-api
   - fulfillment-api.osac
   - fulfillment-api.osac.svc.cluster.local
+  - fulfillment-internal-api
+  - fulfillment-internal-api.osac
+  - fulfillment-internal-api.osac.svc.cluster.local
   secretName: fulfillment-api-tls
   privateKey:
     rotationPolicy: Always

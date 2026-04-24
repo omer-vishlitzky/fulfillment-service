@@ -47,11 +47,11 @@ var _ = Describe("ComputeInstance with Subnet attachment", func() {
 		ctx = context.Background()
 
 		// Create clients
-		subnetsClient = privatev1.NewSubnetsClient(tool.AdminConn())
-		virtualNetworksClient = privatev1.NewVirtualNetworksClient(tool.AdminConn())
-		networkClassesClient = privatev1.NewNetworkClassesClient(tool.AdminConn())
-		computeInstancesClient = publicv1.NewComputeInstancesClient(tool.UserConn())
-		computeInstanceTemplatesClient = privatev1.NewComputeInstanceTemplatesClient(tool.AdminConn())
+		subnetsClient = privatev1.NewSubnetsClient(tool.InternalView().AdminConn())
+		virtualNetworksClient = privatev1.NewVirtualNetworksClient(tool.InternalView().AdminConn())
+		networkClassesClient = privatev1.NewNetworkClassesClient(tool.InternalView().AdminConn())
+		computeInstancesClient = publicv1.NewComputeInstancesClient(tool.ExternalView().UserConn())
+		computeInstanceTemplatesClient = privatev1.NewComputeInstanceTemplatesClient(tool.InternalView().AdminConn())
 
 		// Create ComputeInstanceTemplate
 		computeInstanceTemplateId = fmt.Sprintf("test-ci-template-%s", uuid.New())

@@ -12,13 +12,25 @@ specific language governing permissions and limitations under the License.
 */}}
 
 {{/*
-Generate the hostname for the fulfillment API. If .Values.hostname is set, use it; otherwise, use the default
+Generate the hostname for the fulfillment API. If .Values.externalHostname is set, use it; otherwise, use the default
 Kubernetes service hostname based on the release namespace.
 */}}
 {{- define "fulfillment-api.hostname" -}}
-{{- if .Values.hostname -}}
-{{- .Values.hostname -}}
+{{- if .Values.externalHostname -}}
+{{- .Values.externalHostname -}}
 {{- else -}}
 {{- printf "fulfillment-api.%s.svc.cluster.local" .Release.Namespace -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Generate the hostname for the fulfillment internal API. If .Values.internalHostname is set, use it; otherwise, use the
+default Kubernetes service hostname based on the release namespace.
+*/}}
+{{- define "fulfillment-internal-api.hostname" -}}
+{{- if .Values.internalHostname -}}
+{{- .Values.internalHostname -}}
+{{- else -}}
+{{- printf "fulfillment-internal-api.%s.svc.cluster.local" .Release.Namespace -}}
 {{- end -}}
 {{- end -}}

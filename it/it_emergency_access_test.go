@@ -36,7 +36,7 @@ var _ = Describe("Emergency access", func() {
 
 	It("Can create objects using gRPC and the emergency admin service account", func() {
 		// Create the client:
-		client := privatev1.NewClusterTemplatesClient(tool.EmergencyConn())
+		client := privatev1.NewClusterTemplatesClient(tool.InternalView().EmergencyConn())
 
 		// Create the object:
 		id := fmt.Sprintf("emergency_grpc_%s", uuid.New())
@@ -56,7 +56,7 @@ var _ = Describe("Emergency access", func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("Can create objects using REST the emergency admin service account", func() {
+	It("Can create objects using REST and the emergency admin service account", func() {
 		// Prepare the request body:
 		id := fmt.Sprintf("emergency_rest_%s", uuid.New())
 		requestBody := map[string]any{
@@ -68,20 +68,28 @@ var _ = Describe("Emergency access", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create the object:
-		createUrl := fmt.Sprintf("https://%s/api/private/v1/cluster_templates", serviceAddr)
-		createRequest, err := http.NewRequestWithContext(ctx, "POST", createUrl, bytes.NewReader(requestData))
+		createRequest, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			"/api/private/v1/cluster_templates",
+			bytes.NewReader(requestData),
+		)
 		Expect(err).ToNot(HaveOccurred())
 		createRequest.Header.Set("Content-Type", "application/json")
-		createResponse, err := tool.EmergencyClient().Do(createRequest)
+		createResponse, err := tool.InternalView().EmergencyClient().Do(createRequest)
 		Expect(err).ToNot(HaveOccurred())
 		defer createResponse.Body.Close()
 		Expect(createResponse.StatusCode).To(Equal(http.StatusOK))
 
 		// Delete the object:
-		deleteUrl := fmt.Sprintf("https://%s/api/private/v1/cluster_templates/%s", serviceAddr, id)
-		deleteRequest, err := http.NewRequestWithContext(ctx, "DELETE", deleteUrl, nil)
+		deleteRequest, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodDelete,
+			fmt.Sprintf("/api/private/v1/cluster_templates/%s", id),
+			nil,
+		)
 		Expect(err).ToNot(HaveOccurred())
-		deleteResponse, err := tool.EmergencyClient().Do(deleteRequest)
+		deleteResponse, err := tool.InternalView().EmergencyClient().Do(deleteRequest)
 		Expect(err).ToNot(HaveOccurred())
 		defer deleteResponse.Body.Close()
 		Expect(deleteResponse.StatusCode).To(Equal(http.StatusOK))

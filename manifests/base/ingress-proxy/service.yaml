@@ -19,9 +19,37 @@ spec:
   selector:
     app: fulfillment-ingress-proxy
   ports:
-  - name: api
+  - name: external-api
     port: 8000
-    targetPort: api
+    targetPort: external-api
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: fulfillment-internal-api
+spec:
+  selector:
+    app: fulfillment-ingress-proxy
+  ports:
+  - name: internal-api
+    port: 8001
+    targetPort: internal-api
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: fulfillment-ingress-proxy-metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8002"
+spec:
+  selector:
+    app: fulfillment-ingress-proxy
+  ports:
   - name: metrics
     port: 8002
     targetPort: metrics

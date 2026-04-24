@@ -68,9 +68,9 @@ static_resources:
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
 
-   # This listener receives traffic from outside, so it needs to be secured with CORS and TLS. Authentication and
-   # authorization are handled by the service itself.
-  - name: ingress
+   # This listener receives external traffic for the public API, so it needs to be secured with CORS and TLS.
+   # Authentication and authorization are handled by the service itself.
+  - name: external-api
     address:
       socket_address:
         address: 0.0.0.0
@@ -85,7 +85,97 @@ static_resources:
             typed_config:
               "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
               path: /dev/stdout
-          stat_prefix: ingress
+          stat_prefix: external-api
+          route_config:
+            name: backend
+            virtual_hosts:
+            - name: all
+              domains:
+              - "*"
+              typed_per_filter_config:
+                envoy.filters.http.cors:
+                  "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.CorsPolicy
+                  allow_origin_string_match:
+                  - safe_regex:
+                      regex: ".*"
+                  allow_methods: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+                  allow_headers: "Authorization,Content-Type,X-User-Agent,X-Grpc-Web, Accept"
+                  expose_headers: "Grpc-Status,Grpc-Message"
+                  allow_credentials: true
+                  max_age: "86400"
+              routes:
+
+              # This route is for the REST gateway. The public API endpoints use path prefixes
+              # like /api/fulfillment/ and /api/events/.
+              - name: rest-gateway
+                match:
+                  safe_regex:
+                    regex: /api/(fulfillment|events)(/.*)?
+                route:
+                  cluster: rest-gateway
+                  timeout: 300s
+
+              # This route is for the gRPC streaming requests used to watch events. Those streams can last very
+              # long, so we don't want to set a timeout, as that would cause the connection to be closed and
+              # events to be potentially lost.
+              - name: events
+                match:
+                  safe_regex:
+                    regex: /osac\.public\..*/Watch
+                route:
+                  cluster: grpc-server
+                  timeout: 0s
+                  idle_timeout: 0s
+
+              # This route is for public API and gRPC reflection unary requests.
+              - name: grpc-server
+                match:
+                  safe_regex:
+                    regex: /(osac\.public\.|grpc\.(reflection|health)\.).*
+                route:
+                  cluster: grpc-server
+                  timeout: 300s
+
+          http_filters:
+          - name: envoy.filters.http.cors
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.cors.v3.Cors
+          - name: envoy.filters.http.router
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          common_tls_context:
+            alpn_protocols:
+            - http1.1
+            - h2
+            tls_certificates:
+            - certificate_chain:
+                filename: /etc/envoy/tls/tls.crt
+              private_key:
+                filename: /etc/envoy/tls/tls.key
+
+   # This listener receives internal traffic for both the public and private APIs, so it needs to be secured with
+   # CORS and TLS. Authentication and authorization are handled by the service itself.
+  - name: internal-api
+    address:
+      socket_address:
+        address: 0.0.0.0
+        port_value: 8001
+    filter_chains:
+    - filters:
+      - name: envoy.filters.network.http_connection_manager
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+          access_log:
+          - name: envoy.access_loggers.file
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.access_loggers.file.v3.FileAccessLog
+              path: /dev/stdout
+          stat_prefix: internal-api
           route_config:
             name: backend
             virtual_hosts:
@@ -113,9 +203,9 @@ static_resources:
                   cluster: rest-gateway
                   timeout: 300s
 
-              # This route is for the gRPC streaming requests used to watch events. Those streams can last very long,
-              # so we don't want to set a timeout, as that would cause the connection to be closed and events to be
-              # potentially lost.
+              # This route is for the gRPC streaming requests used to watch events. Those streams can last very
+              # long, so we don't want to set a timeout, as that would cause the connection to be closed and
+              # events to be potentially lost.
               - name: events
                 match:
                   safe_regex:
@@ -125,7 +215,7 @@ static_resources:
                   timeout: 0s
                   idle_timeout: 0s
 
-              # This route is for gRPC unary requests, which should be quite fast, so we can safely set a timeout.
+              # This route is for gRPC unary requests.
               - name: grpc-server
                 match:
                   prefix: /

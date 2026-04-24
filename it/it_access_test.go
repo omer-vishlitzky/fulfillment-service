@@ -34,61 +34,62 @@ var _ = Describe("Access control", func() {
 
 	Describe("Public API", func() {
 		It("Allows regular users to list cluster templates", func() {
-			client := publicv1.NewClusterTemplatesClient(tool.UserConn())
+			client := publicv1.NewClusterTemplatesClient(tool.ExternalView().UserConn())
 			_, err := client.List(ctx, publicv1.ClusterTemplatesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows regular users to list clusters", func() {
-			client := publicv1.NewClustersClient(tool.UserConn())
+			client := publicv1.NewClustersClient(tool.ExternalView().UserConn())
 			_, err := client.List(ctx, publicv1.ClustersListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows regular users to list host types", func() {
-			client := publicv1.NewHostTypesClient(tool.UserConn())
+			client := publicv1.NewHostTypesClient(tool.ExternalView().UserConn())
 			_, err := client.List(ctx, publicv1.HostTypesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows regular users to list compute instance templates", func() {
-			client := publicv1.NewComputeInstanceTemplatesClient(tool.UserConn())
+			client := publicv1.NewComputeInstanceTemplatesClient(tool.ExternalView().UserConn())
 			_, err := client.List(ctx, publicv1.ComputeInstanceTemplatesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows regular users to list compute instances", func() {
-			client := publicv1.NewComputeInstancesClient(tool.UserConn())
+			client := publicv1.NewComputeInstancesClient(tool.ExternalView().UserConn())
 			_, err := client.List(ctx, publicv1.ComputeInstancesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list cluster templates", func() {
-			client := publicv1.NewClusterTemplatesClient(tool.AdminConn())
+			client := publicv1.NewClusterTemplatesClient(tool.ExternalView().AdminConn())
+
 			_, err := client.List(ctx, publicv1.ClusterTemplatesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list clusters", func() {
-			client := publicv1.NewClustersClient(tool.AdminConn())
+			client := publicv1.NewClustersClient(tool.ExternalView().AdminConn())
 			_, err := client.List(ctx, publicv1.ClustersListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list host types", func() {
-			client := publicv1.NewHostTypesClient(tool.AdminConn())
+			client := publicv1.NewHostTypesClient(tool.ExternalView().AdminConn())
 			_, err := client.List(ctx, publicv1.HostTypesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list compute instance templates", func() {
-			client := publicv1.NewComputeInstanceTemplatesClient(tool.AdminConn())
+			client := publicv1.NewComputeInstanceTemplatesClient(tool.ExternalView().AdminConn())
 			_, err := client.List(ctx, publicv1.ComputeInstanceTemplatesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list compute instances", func() {
-			client := publicv1.NewComputeInstancesClient(tool.AdminConn())
+			client := publicv1.NewComputeInstancesClient(tool.ExternalView().AdminConn())
 			_, err := client.List(ctx, publicv1.ComputeInstancesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -96,43 +97,43 @@ var _ = Describe("Access control", func() {
 
 	Describe("Private API", func() {
 		It("Allows admin users to list host types", func() {
-			client := privatev1.NewHostTypesClient(tool.AdminConn())
+			client := privatev1.NewHostTypesClient(tool.InternalView().AdminConn())
 			_, err := client.List(ctx, privatev1.HostTypesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list cluster templates", func() {
-			client := privatev1.NewClusterTemplatesClient(tool.AdminConn())
+			client := privatev1.NewClusterTemplatesClient(tool.InternalView().AdminConn())
 			_, err := client.List(ctx, privatev1.ClusterTemplatesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list hubs", func() {
-			client := privatev1.NewHubsClient(tool.AdminConn())
+			client := privatev1.NewHubsClient(tool.InternalView().AdminConn())
 			_, err := client.List(ctx, privatev1.HubsListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list private clusters", func() {
-			client := privatev1.NewClustersClient(tool.AdminConn())
+			client := privatev1.NewClustersClient(tool.InternalView().AdminConn())
 			_, err := client.List(ctx, privatev1.ClustersListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list compute instance templates", func() {
-			client := privatev1.NewComputeInstanceTemplatesClient(tool.AdminConn())
+			client := privatev1.NewComputeInstanceTemplatesClient(tool.InternalView().AdminConn())
 			_, err := client.List(ctx, privatev1.ComputeInstanceTemplatesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Allows admin users to list private compute instances", func() {
-			client := privatev1.NewComputeInstancesClient(tool.AdminConn())
+			client := privatev1.NewComputeInstancesClient(tool.InternalView().AdminConn())
 			_, err := client.List(ctx, privatev1.ComputeInstancesListRequest_builder{}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Denies regular users access to host types", func() {
-			client := privatev1.NewHostTypesClient(tool.UserConn())
+			client := privatev1.NewHostTypesClient(tool.InternalView().UserConn())
 			_, err := client.List(ctx, privatev1.HostTypesListRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			status, ok := grpcstatus.FromError(err)
@@ -141,7 +142,7 @@ var _ = Describe("Access control", func() {
 		})
 
 		It("Denies regular users access to cluster templates", func() {
-			client := privatev1.NewClusterTemplatesClient(tool.UserConn())
+			client := privatev1.NewClusterTemplatesClient(tool.InternalView().UserConn())
 			_, err := client.List(ctx, privatev1.ClusterTemplatesListRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			status, ok := grpcstatus.FromError(err)
@@ -150,7 +151,7 @@ var _ = Describe("Access control", func() {
 		})
 
 		It("Denies regular users access to hubs", func() {
-			client := privatev1.NewHubsClient(tool.UserConn())
+			client := privatev1.NewHubsClient(tool.InternalView().UserConn())
 			_, err := client.List(ctx, privatev1.HubsListRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			status, ok := grpcstatus.FromError(err)
@@ -159,7 +160,7 @@ var _ = Describe("Access control", func() {
 		})
 
 		It("Denies regular users access to private clusters", func() {
-			client := privatev1.NewClustersClient(tool.UserConn())
+			client := privatev1.NewClustersClient(tool.InternalView().UserConn())
 			_, err := client.List(ctx, privatev1.ClustersListRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			status, ok := grpcstatus.FromError(err)
@@ -168,7 +169,7 @@ var _ = Describe("Access control", func() {
 		})
 
 		It("Denies regular users access to compute instance templates", func() {
-			client := privatev1.NewComputeInstanceTemplatesClient(tool.UserConn())
+			client := privatev1.NewComputeInstanceTemplatesClient(tool.InternalView().UserConn())
 			_, err := client.List(ctx, privatev1.ComputeInstanceTemplatesListRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			status, ok := grpcstatus.FromError(err)
@@ -177,7 +178,7 @@ var _ = Describe("Access control", func() {
 		})
 
 		It("Denies regular users access to private compute instances", func() {
-			client := privatev1.NewComputeInstancesClient(tool.UserConn())
+			client := privatev1.NewComputeInstancesClient(tool.InternalView().UserConn())
 			_, err := client.List(ctx, privatev1.ComputeInstancesListRequest_builder{}.Build())
 			Expect(err).To(HaveOccurred())
 			status, ok := grpcstatus.FromError(err)

@@ -34,7 +34,7 @@ var _ = Describe("Private cluster templates", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		client = privatev1.NewClusterTemplatesClient(tool.AdminConn())
+		client = privatev1.NewClusterTemplatesClient(tool.InternalView().AdminConn())
 	})
 
 	It("Can get the list of templates", func() {

@@ -55,9 +55,9 @@ var _ = Describe("Cluster reconciler", func() {
 		ctx = context.Background()
 
 		// Create the clients:
-		clustersClient = publicv1.NewClustersClient(tool.UserConn())
-		hostTypesClient = privatev1.NewHostTypesClient(tool.AdminConn())
-		templatesClient = privatev1.NewClusterTemplatesClient(tool.AdminConn())
+		clustersClient = publicv1.NewClustersClient(tool.ExternalView().UserConn())
+		hostTypesClient = privatev1.NewHostTypesClient(tool.InternalView().AdminConn())
+		templatesClient = privatev1.NewClusterTemplatesClient(tool.InternalView().AdminConn())
 
 		// Create a host type for testing:
 		hostTypeId = fmt.Sprintf("my_host_type_%s", uuid.New())

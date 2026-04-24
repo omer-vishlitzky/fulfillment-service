@@ -16,7 +16,6 @@ syntax = "proto3";
 package osac.public.v1;
 
 import "osac/public/v1/metadata_type.proto";
-import "osac/public/v1/break_glass_credentials_type.proto";
 
 // An organization groups tenants and resources for a customer or business unit.
 message Organization {
@@ -26,18 +25,9 @@ message Organization {
   Metadata metadata = 2;
 
   OrganizationSpec spec = 3;
-  OrganizationStatus status = 4;
 }
 
 message OrganizationSpec {
   // Human friendly description of the organization, using Markdown format.
   string description = 1;
-}
-
-message OrganizationStatus {
-  // Break-glass account credentials.
-  // Only populated on successful creation. These credentials must be stored securely.
-  // The break-glass account provides emergency access to the organization's IdP realm.
-  // This field is not persisted and will be empty when reading existing organizations.
-  BreakGlassCredentials break_glass_credentials = 1;
 }

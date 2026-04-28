@@ -695,6 +695,19 @@ var _ = Describe("Private public IPs server", func() {
 			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
 			Expect(err.Error()).To(ContainSubstring("invalid state transition"))
 		})
+
+		It("skips state validation when new state is UNSPECIFIED", func() {
+			object := createPublicIPInState(privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
+
+			// Update without setting state (UNSPECIFIED is the zero value):
+			object.GetMetadata().Name = "updated-name"
+			object.GetStatus().SetState(privatev1.PublicIPState_PUBLIC_IP_STATE_UNSPECIFIED)
+			resp, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: object,
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.GetObject().GetMetadata().GetName()).To(Equal("updated-name"))
+		})
 	})
 
 	Describe("Delete constraint", func() {

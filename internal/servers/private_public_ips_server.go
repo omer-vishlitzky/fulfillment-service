@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 	grpccodes "google.golang.org/grpc/codes"
@@ -381,17 +382,10 @@ func validateImmutableFieldsPublicIP(newPublicIP, existingPublicIP *privatev1.Pu
 // PublicIP lifecycle state machine.
 func validatePublicIPStateTransition(from, to privatev1.PublicIPState) error {
 	allowed, exists := validPublicIPTransitions[from]
-	if !exists {
+	if !exists || !slices.Contains(allowed, to) {
 		return grpcstatus.Errorf(grpccodes.FailedPrecondition,
 			"invalid state transition from %s to %s", from.String(), to.String())
 	}
 
-	for _, valid := range allowed {
-		if to == valid {
-			return nil
-		}
-	}
-
-	return grpcstatus.Errorf(grpccodes.FailedPrecondition,
-		"invalid state transition from %s to %s", from.String(), to.String())
+	return nil
 }

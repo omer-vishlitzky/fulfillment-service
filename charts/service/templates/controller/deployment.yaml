@@ -12,6 +12,8 @@ specific language governing permissions and limitations under the License.
 */}}
 
 {{- $caBundleConfigMap := required "certs.caBundle.configMap is required" .Values.certs.caBundle.configMap }}
+{{- $authIssuerUrl := required "auth.issuerUrl is required" .Values.auth.issuerUrl }}
+{{- $authControllerCredentials := required "auth.controllerCredentials is required" .Values.auth.controllerCredentials }}
 
 apiVersion: apps/v1
 kind: Deployment
@@ -38,6 +40,29 @@ spec:
       - name: tls
         secret:
           secretName: fulfillment-controller-tls
+      - name: credentials
+        projected:
+          sources:
+          {{ range $authControllerCredentials }}
+          {{ if .configMap }}
+          - configMap:
+              name: {{ .configMap.name }}
+              items:
+              {{ range .configMap.items }}
+              - key: {{ .key }}
+                path: {{ .param }}
+              {{ end }}
+          {{ end }}
+          {{ if .secret }}
+          - secret:
+              name: {{ .secret.name }}
+              items:
+              {{ range .secret.items }}
+              - key: {{ .key }}
+                path: {{ .param }}
+              {{ end }}
+          {{ end }}
+          {{ end }}
       containers:
       - name: controller
         image: {{ .Values.images.service }}
@@ -46,6 +71,9 @@ spec:
           mountPath: /etc/fulfillment-controller/tls/cas
         - name: tls
           mountPath: /etc/fulfillment-controller/tls
+        - name: credentials
+          mountPath: /etc/fulfillment-controller/credentials
+          readOnly: true
         command:
         {{ if .Values.debug }}
         - dlv
@@ -66,7 +94,9 @@ spec:
         - --log-headers={{ .Values.log.headers }}
         - --log-bodies={{ .Values.log.bodies }}
         - --ca-file=/etc/fulfillment-controller/tls/cas
-        - --token-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+        - --auth-issuer-url={{ $authIssuerUrl }}
+        - --auth-client-id-file=/etc/fulfillment-controller/credentials/client-id
+        - --auth-client-secret-file=/etc/fulfillment-controller/credentials/client-secret
         - --grpc-server-address=fulfillment-internal-api:8001
         - --grpc-keep-alive=5m
         - --grpc-listener-address=0.0.0.0:8000

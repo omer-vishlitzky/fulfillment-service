@@ -5,9 +5,27 @@ This directory contains the Helm charts used to deploy the service to a Kubernet
 The main chart is `service`, which can be configured for either OpenShift (intended for production environments) or
 Kind (intended for development and testing environments) using the `variant` value.
 
+## Prerequisites
+
+The fulfillment service chart does not include a database or an identity provider. These must be
+installed separately before deploying the service:
+
+- _PostgreSQL_ - The service requires an external PostgreSQL database. The database connection
+  details are passed to the chart via the `database.connection` value. See the
+  `charts/service/values.yaml` file for details.
+
+- _Keycloak_ - The service requires Keycloak issuer for authentication. The issuer URL is passed
+  via `auth.issuerUrl`. You must create at least the `osac-admin` and `osac-controller` service
+  account clients and pass the credentials via the `auth.controllerCredentials` value. See the
+  `charts/service/values.yaml` file for the expected format.
+
+Note that the PostgreSQL and Keycloak Helm charts that are included in this project are intended
+only for development environments, and shouldn't be used in production.
+
 ## OpenShift
 
-The gRPC protocol is based on HTTP2, which isn't enabled by default in OpenShift. To enable it run this command:
+The gRPC protocol is based on HTTP2, which isn't enabled by default in OpenShift. To enable it run
+this command:
 
 ```shell
 $ oc annotate ingresses.config/cluster ingress.operator.openshift.io/default-enable-http2=true
@@ -79,16 +97,70 @@ spec:
 .
 ```
 
+Create the Kubernetes Secret containing the database connection details. The keys must match the
+parameters expected by the service chart (for example, `url` for the connection URL, `user` and
+`password` for the credentials):
+
+```shell
+$ kubectl create secret generic fulfillment-database \
+--namespace osac \
+--from-literal=url='postgres://db.example.com:5432/fulfillment?sslmode=verify-full' \
+--from-literal=user=fulfillment \
+--from-literal=password=...
+```
+
+Create the Kubernetes Secret containing the controller OAuth client credentials. The client
+identifier and secret must match the `osac-controller` service account created in Keycloak:
+
+```shell
+$ kubectl create secret generic fulfillment-controller-credentials \
+--namespace osac \
+--from-literal=client-id=osac-controller \
+--from-literal=client-secret=...
+```
+
 Deploy the application:
 
 ```shell
 $ helm install fulfillment-service charts/service \
 --namespace osac \
 --create-namespace \
---set variant=openshift \
---set certs.issuerRef.name=default-ca \
---set certs.caBundle.configMap=ca-bundle \
---set auth.issuerUrl=https://your-oauth-issuer-url
+--values service-values.yaml
+```
+
+Where `service-values.yaml` contains at least:
+
+```yaml
+variant: openshift
+
+certs:
+  issuerRef:
+    name: default-ca
+  caBundle:
+    configMap: ca-bundle
+
+auth:
+  issuerUrl: https://your-oauth-issuer-url
+  controllerCredentials:
+  - secret:
+      name: fulfillment-controller-credentials
+      items:
+      - key: client-id
+        param: client-id
+      - key: client-secret
+        param: client-secret
+
+database:
+  connection:
+  - secret:
+      name: fulfillment-database
+      items:
+      - key: url
+        param: url
+      - key: user
+        param: user
+      - key: password
+        param: password
 ```
 
 ## Kind
@@ -109,8 +181,8 @@ nodes:
 .
 ```
 
-The cluster uses a single port mapping: external port 8000 on the host is forwarded to internal port 30000 in the
-cluster. This port is used by the Envoy Gateway for ingress traffic.
+The cluster uses a single port mapping: external port 8000 on the host is forwarded to internal port
+30000 in the cluster. This port is used by the Envoy Gateway for ingress traffic.
 
 Install the _cert-manager_ operator:
 
@@ -140,7 +212,8 @@ $ helm install default-ca charts/ca \
 --namespace cert-manager
 ```
 
-Install the _Envoy Gateway_ that provides the Gateway API implementation used for routing traffic to the services:
+Install the _Envoy Gateway_ that provides the Gateway API implementation used for routing traffic to
+the services:
 
 ```shell
 $ helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
@@ -150,8 +223,9 @@ $ helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
 --wait
 ```
 
-Create the default gateway configuration. First, create an `EnvoyProxy` resource that configures the gateway service
-to use a `NodePort` with port 30000 (the internal ingress port mapped from the host):
+Create the default gateway configuration. First, create an `EnvoyProxy` resource that configures the
+gateway service to use a `NodePort` with port 30000 (the internal ingress port mapped from the
+host):
 
 ```shell
 $ kubectl apply -f - <<.
@@ -224,14 +298,66 @@ Install the _Authorino_ operator:
 $ kubectl apply -f https://raw.githubusercontent.com/Kuadrant/authorino-operator/refs/heads/release-v0.23.1/config/deploy/manifests.yaml
 ```
 
+Create the Kubernetes secret containing the database connection details:
+
+```shell
+$ kubectl create secret generic fulfillment-database \
+--namespace osac \
+--from-literal=url='postgres://db.example.com:5432/fulfillment?sslmode=verify-full' \
+--from-literal=user=fulfillment \
+--from-literal=password=...
+```
+
+Create the Kubernetes secret containing the controller OAuth client credentials. The client
+identifier and secret must match the `osac-controller` service account created in Keycloak:
+
+```shell
+$ kubectl create secret generic fulfillment-controller-credentials \
+--namespace osac \
+--from-literal=client-id=osac-controller \
+--from-literal=client-secret=...
+```
+
 Deploy the application:
 
 ```shell
 $ helm install fulfillment-service charts/service \
 --namespace osac \
 --create-namespace \
---set variant=kind \
---set certs.issuerRef.name=default-ca \
---set certs.caBundle.configMap=ca-bundle \
---set auth.issuerUrl=https://your-oauth-issuer-url
+--values service-values.yaml
+```
+
+Where `service-values.yaml` contains at least:
+
+```yaml
+variant: kind
+
+certs:
+  issuerRef:
+    name: default-ca
+  caBundle:
+    configMap: ca-bundle
+
+auth:
+  issuerUrl: https://your-oauth-issuer-url
+  controllerCredentials:
+  - secret:
+      name: fulfillment-controller-credentials
+      items:
+      - key: client-id
+        param: client-id
+      - key: client-secret
+        param: client-secret
+
+database:
+  connection:
+  - secret:
+      name: fulfillment-database
+      items:
+      - key: url
+        param: url
+      - key: user
+        param: user
+      - key: password
+        param: password
 ```

@@ -1,13 +1,39 @@
 # Kubernetes deployment
 
-This directory contains the manifests used to deploy the service to an Kubernetes cluster.
+This directory contains the manifests used to deploy the service to a Kubernetes cluster.
 
-There are currently two variants of the manifests: one for OpenShift, intended for production environments, and another
-for Kind, intended for development and testing environments.
+There are currently two variants of the manifests: one for OpenShift, intended for production
+environments, and another for Kind, intended for development and testing environments.
+
+Unlike the Helm chart in `charts/service`, these kustomize manifests include a PostgreSQL database
+as part of the deployment. However, an OAuth identity provider (such as Keycloak) must be installed
+separately. The base manifests expect the issuer URL
+`https://keycloak.keycloak.svc.cluster.local:8000/realms/osac`; this can be changed with a kustomize
+patch in a custom overlay.
+
+## Prerequisites
+
+Before deploying the service you need to create a Kubernetes secret containing the OAuth client
+credentials that the controller uses to authenticate to the API. The client identifier and secret
+must match the `osac-controller` service account configured in the identity provider.
+
+The secret must be named `fulfillment-controller-credentials` and contain the keys `client-id` and
+`client-secret`:
+
+```shell
+$ kubectl create secret generic fulfillment-controller-credentials \
+--namespace osac \
+--from-literal=client-id=osac-controller \
+--from-literal=client-secret=...
+```
+
+If you need to use a different secret name or different keys, you can override the volume definition
+in the controller deployment using a kustomize patch in your overlay.
 
 ## OpenShift
 
-The gRPC protocol is based on HTTP2, which isn't enabled by default in OpenShift. To enable it run this command:
+The gRPC protocol is based on HTTP2, which isn't enabled by default in OpenShift. To enable it run
+this command:
 
 ```shell
 $ oc annotate ingresses.config/cluster ingress.operator.openshift.io/default-enable-http2=true
@@ -103,8 +129,8 @@ nodes:
 .
 ```
 
-The cluster uses a single port mapping: external port 8000 on the host is forwarded to internal port 30000 in the
-cluster. This port is used by the Envoy Gateway for ingress traffic.
+The cluster uses a single port mapping: external port 8000 on the host is forwarded to internal port
+30000 in the cluster. This port is used by the Envoy Gateway for ingress traffic.
 
 Install the _cert-manager_ operator:
 
@@ -134,7 +160,8 @@ $ helm install default-ca charts/ca \
 --namespace cert-manager
 ```
 
-Install the _Envoy Gateway_ that provides the Gateway API implementation used for routing traffic to the services:
+Install the _Envoy Gateway_ that provides the Gateway API implementation used for routing traffic to
+the services:
 
 ```shell
 $ helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
@@ -144,8 +171,9 @@ $ helm install envoy-gateway oci://docker.io/envoyproxy/gateway-helm \
 --wait
 ```
 
-Create the default gateway configuration. First, create an `EnvoyProxy` resource that configures the gateway service
-to use a `NodePort` with port 30000 (the internal ingress port mapped from the host):
+Create the default gateway configuration. First, create an `EnvoyProxy` resource that configures the
+gateway service to use a `NodePort` with port 30000 (the internal ingress port mapped from the
+host):
 
 ```shell
 $ kubectl apply -f - <<.

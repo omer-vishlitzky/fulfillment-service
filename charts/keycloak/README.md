@@ -21,6 +21,7 @@ The following table lists the configurable parameters of the Keycloak chart:
 | `database.connection`          | List of sources for database connection parameters (see below) | No       | `[]`            |
 | `groups`                       | List of groups to create in the Keycloak realm                 | No       | `[]`            |
 | `users`                        | List of users to create in the Keycloak realm                  | No       | `[]`            |
+| `clients`                      | List of clients to create in the Keycloak realm                | No       | `[]`            |
 
 This chart expects an external PostgreSQL database to be available before installation. The database
 connection details are provided via `database.connection`, a list of ConfigMap and Secret sources
@@ -153,6 +154,105 @@ users:
 
 Refer to the [Keycloak documentation](https://www.keycloak.org/docs/latest/server_admin/) for more
 details about the available fields for groups and users.
+
+### Clients
+
+Clients are appended to the existing clients defined in the base realm JSON file. This is useful
+for defining OAuth service accounts that can authenticate using the client credentials flow.
+
+To create a service account client you need to add both a client entry and a corresponding user
+entry. The username must follow the Keycloak convention `service-account-<clientId>`:
+
+```yaml
+clients:
+
+- clientId: my-service
+  name: My Service
+  description: Service account for my service
+  enabled: true
+  clientAuthenticatorType: client-secret
+  secret: my-secret
+  serviceAccountsEnabled: true
+  publicClient: false
+  standardFlowEnabled: false
+  implicitFlowEnabled: false
+  directAccessGrantsEnabled: false
+  protocol: openid-connect
+  fullScopeAllowed: true
+
+users:
+
+- username: service-account-my-service
+  enabled: true
+  serviceAccountClientId: my-service
+```
+
+The key fields for service account clients are:
+
+- `clientId`: The identifier used to authenticate.
+- `secret`: The client secret.
+- `serviceAccountsEnabled`: Must be `true` to enable the client credentials flow.
+- `publicClient`: Must be `false` for confidential clients.
+
+Refer to the [Keycloak documentation](https://www.keycloak.org/docs/latest/server_admin/) for more
+details about the available fields for clients.
+
+### Required clients for the fulfillment service
+
+When using this Keycloak chart together with the fulfillment service, you must create at least the
+following two service account clients:
+
+- `osac-admin` — Used by the administrator tooling to manage the service.
+- `osac-controller` — Used by the controller to authenticate to the fulfillment API using the OAuth
+  client credentials flow.
+
+For example:
+
+```yaml
+clients:
+
+- clientId: osac-admin
+  name: OSAC administrator
+  description: Service account for the OSAC administrator
+  enabled: true
+  clientAuthenticatorType: client-secret
+  secret: <your-secret>
+  serviceAccountsEnabled: true
+  publicClient: false
+  standardFlowEnabled: false
+  implicitFlowEnabled: false
+  directAccessGrantsEnabled: false
+  protocol: openid-connect
+  fullScopeAllowed: true
+
+- clientId: osac-controller
+  name: OSAC controller
+  description: Service account for the OSAC controller
+  enabled: true
+  clientAuthenticatorType: client-secret
+  secret: <your-secret>
+  serviceAccountsEnabled: true
+  publicClient: false
+  standardFlowEnabled: false
+  implicitFlowEnabled: false
+  directAccessGrantsEnabled: false
+  protocol: openid-connect
+  fullScopeAllowed: true
+
+users:
+
+- username: service-account-osac-admin
+  enabled: true
+  serviceAccountClientId: osac-admin
+
+- username: service-account-osac-controller
+  enabled: true
+  serviceAccountClientId: osac-controller
+```
+
+The `secret` values used here must match the credentials configured in the fulfillment service Helm
+chart (via `auth.controllerCredentials`) or in the Kubernetes secret referenced by the kustomize
+manifests.
 
 ## Exporting the realm
 

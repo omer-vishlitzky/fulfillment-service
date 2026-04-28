@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -52,6 +53,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/idp/keycloak"
 	"github.com/osac-project/fulfillment-service/internal/logging"
 	"github.com/osac-project/fulfillment-service/internal/network"
+	"github.com/osac-project/fulfillment-service/internal/oauth"
 	shtdwn "github.com/osac-project/fulfillment-service/internal/shutdown"
 	"github.com/osac-project/fulfillment-service/internal/version"
 )
@@ -73,10 +75,46 @@ func Cmd() *cobra.Command {
 		"File or directory containing trusted CA certificates.",
 	)
 	flags.StringVar(
-		&runner.args.tokenFile,
-		"token-file",
+		&runner.args.authIssuerUrl,
+		"auth-issuer-url",
 		"",
-		"File containing the token to use for authentication.",
+		"Issuer URL for OAuth token acquisition. Required when using '--auth-client-id' and "+
+			"'--auth-client-secret'. Mutually exclusive with '--auth-issuer-url-file'.",
+	)
+	flags.StringVar(
+		&runner.args.authIssuerUrlFile,
+		"auth-issuer-url-file",
+		"",
+		"File containing the issuer URL for OAuth token acquisition. Mutually exclusive with "+
+			"'--auth-issuer-url'.",
+	)
+	flags.StringVar(
+		&runner.args.authClientId,
+		"auth-client-id",
+		"",
+		"OAuth client identifier for authentication with the API. Mutually exclusive with "+
+			"'--auth-client-id-file'.",
+	)
+	flags.StringVar(
+		&runner.args.authClientIdFile,
+		"auth-client-id-file",
+		"",
+		"File containing the OAuth client identifier for authentication with the API. Mutually exclusive with "+
+			"'--auth-client-id'.",
+	)
+	flags.StringVar(
+		&runner.args.authClientSecret,
+		"auth-client-secret",
+		"",
+		"OAuth client secret for authentication with the API. Mutually exclusive with "+
+			"'--auth-client-secret-file'.",
+	)
+	flags.StringVar(
+		&runner.args.authClientSecretFile,
+		"auth-client-secret-file",
+		"",
+		"File containing the OAuth client secret for authentication with the API. Mutually exclusive with "+
+			"'--auth-client-secret'.",
 	)
 	flags.StringVar(
 		&runner.args.idpProvider,
@@ -107,11 +145,16 @@ type runnerContext struct {
 	logger *slog.Logger
 	flags  *pflag.FlagSet
 	args   struct {
-		caFiles      []string
-		tokenFile    string
-		idpProvider  string
-		idpURL       string
-		idpTokenFile string
+		caFiles              []string
+		authIssuerUrl        string
+		authIssuerUrlFile    string
+		authClientId         string
+		authClientIdFile     string
+		authClientSecret     string
+		authClientSecretFile string
+		idpProvider          string
+		idpURL               string
+		idpTokenFile         string
 	}
 	client *grpc.ClientConn
 }
@@ -122,6 +165,7 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 
 	// Get the context:
 	ctx, cancel := context.WithCancel(cmd.Context())
+	defer cancel()
 
 	// Get the dependencies from the context:
 	r.logger = logging.LoggerFromContext(ctx)
@@ -133,6 +177,26 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 
 	// Save the flags:
 	r.flags = cmd.Flags()
+
+	// Check the flags:
+	if r.args.authIssuerUrl != "" && r.args.authIssuerUrlFile != "" {
+		return fmt.Errorf("flags '--auth-issuer-url' and '--auth-issuer-url-file' are mutually exclusive")
+	}
+	if r.args.authClientId != "" && r.args.authClientIdFile != "" {
+		return fmt.Errorf("flags '--auth-client-id' and '--auth-client-id-file' are mutually exclusive")
+	}
+	if r.args.authClientSecret != "" && r.args.authClientSecretFile != "" {
+		return fmt.Errorf("flags '--auth-client-secret' and '--auth-client-secret-file' are mutually exclusive")
+	}
+	if r.args.authIssuerUrl == "" && r.args.authIssuerUrlFile == "" {
+		return fmt.Errorf("flag '--auth-issuer-url' or '--auth-issuer-url-file' is required")
+	}
+	if r.args.authClientId == "" && r.args.authClientIdFile == "" {
+		return fmt.Errorf("flag '--auth-client-id' or '--auth-client-id-file' is required")
+	}
+	if r.args.authClientSecret == "" && r.args.authClientSecretFile == "" {
+		return fmt.Errorf("flag '--auth-client-secret' or '--auth-client-secret-file' is required")
+	}
 
 	// Prepare the metrics registerer:
 	metricsRegisterer := prometheus.DefaultRegisterer
@@ -160,12 +224,9 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 
 	// Create the token source:
 	r.logger.InfoContext(ctx, "Creating token source")
-	tokenSource, err := auth.NewFileTokenSource().
-		SetLogger(r.logger).
-		SetFile(r.args.tokenFile).
-		Build()
+	tokenSource, err := r.createTokenSource(ctx, caPool)
 	if err != nil {
-		return fmt.Errorf("failed to create token source: %w", err)
+		return err
 	}
 
 	// Calculate the user agent:
@@ -621,6 +682,78 @@ func (r *runnerContext) waitForServer(ctx context.Context) error {
 	}
 }
 
+// createTokenSource creates the token source used to authenticate the controller when it acts as a client of other
+// services.
+func (r *runnerContext) createTokenSource(ctx context.Context, caPool *x509.CertPool) (result auth.TokenSource,
+	err error) {
+	// Get the values of the flags:
+	issuerUrl := r.args.authIssuerUrl
+	if issuerUrl == "" && r.args.authIssuerUrlFile != "" {
+		issuerUrl, err = r.readTrimmedFile(r.args.authIssuerUrlFile)
+		if err != nil {
+			err = fmt.Errorf(
+				"failed to read issuer URL from file '%s': %w", r.args.authIssuerUrlFile, err,
+			)
+			return
+		}
+	}
+	clientId := r.args.authClientId
+	if clientId == "" && r.args.authClientIdFile != "" {
+		clientId, err = r.readTrimmedFile(r.args.authClientIdFile)
+		if err != nil {
+			err = fmt.Errorf(
+				"failed to read client identifier from file '%s': %w",
+				r.args.authClientIdFile, err,
+			)
+			return
+		}
+	}
+	clientSecret := r.args.authClientSecret
+	if clientSecret == "" && r.args.authClientSecretFile != "" {
+		clientSecret, err = r.readTrimmedFile(r.args.authClientSecretFile)
+		if err != nil {
+			err = fmt.Errorf(
+				"failed to read client secret from file '%s': %w",
+				r.args.authClientSecretFile, err,
+			)
+			return
+		}
+	}
+	r.logger.DebugContext(
+		ctx,
+		"Credentials from flags",
+		slog.String("issuer_url", issuerUrl),
+		slog.String("!client_id", clientId),
+		slog.String("!client_secret", clientSecret),
+	)
+
+	// Create a token store that saves the token in memory:
+	tokenStore, err := auth.NewMemoryTokenStore().
+		SetLogger(r.logger).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token store: %w", err)
+	}
+
+	// Create an token source:
+	tokenSource, err := oauth.NewTokenSource().
+		SetLogger(r.logger).
+		SetStore(tokenStore).
+		SetCaPool(caPool).
+		SetIssuer(issuerUrl).
+		SetFlow(oauth.CredentialsFlow).
+		SetClientId(clientId).
+		SetClientSecret(clientSecret).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create token source: %w", err)
+	}
+
+	// Return the token source:
+	result = tokenSource
+	return
+}
+
 // createIDPManager creates the IDP client and organization manager if IDP is configured.
 // Returns nil if IDP is not configured (not an error).
 func (r *runnerContext) createIDPManager(ctx context.Context, caPool *x509.CertPool) (*idp.OrganizationManager, error) {
@@ -673,6 +806,16 @@ func (r *runnerContext) createIDPManager(ctx context.Context, caPool *x509.CertP
 
 	r.logger.InfoContext(ctx, "IDP Organization manager created successfully")
 	return idpManager, nil
+}
+
+// readTrimmedFile reads the content of the given file and returns it with all leading and trailing whitespace removed.
+func (r *runnerContext) readTrimmedFile(file string) (result string, err error) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return
+	}
+	result = strings.TrimSpace(string(data))
+	return
 }
 
 // controllerUserAgent is the user agent string for the controller.

@@ -73,16 +73,43 @@ var _ = Describe("Authorization rules", Ordered, func() {
 			},
 			"auth": map[string]any{
 				"issuerUrl": "https://my-issuer.com",
+				"controllerCredentials": map[string]any{
+					"secret": map[string]any{
+						"name": "fulfillment-controller-credentials",
+						"items": []any{
+							map[string]any{
+								"key":   "client-id",
+								"param": "client-id",
+							},
+							map[string]any{
+								"key":   "client-secret",
+								"param": "client-secret",
+							},
+						},
+					},
+				},
 			},
 			"database": map[string]any{
 				"connection": []any{
 					map[string]any{
-						"configMap": map[string]any{
-							"name": "my-config",
+						"secret": map[string]any{
+							"name": "fulfillment-database",
 							"items": []any{
 								map[string]any{
 									"key":   "url",
 									"param": "url",
+								},
+								map[string]any{
+									"key":   "user",
+									"param": "user",
+								},
+								map[string]any{
+									"key":   "password",
+									"param": "password",
+								},
+								map[string]any{
+									"key":   "sslmode",
+									"param": "sslmode",
 								},
 							},
 						},
@@ -109,7 +136,8 @@ var _ = Describe("Authorization rules", Ordered, func() {
 			).
 			Build()
 		Expect(err).ToNot(HaveOccurred())
-		helmOut, _, err := helmCmd.Evaluate(ctx)
+		helmOut, helmErr, err := helmCmd.Evaluate(ctx)
+		Expect(string(helmErr)).To(BeEmpty())
 		Expect(err).ToNot(HaveOccurred())
 
 		// Parse the multi-document YAML output and find the 'AuthConfig' document:

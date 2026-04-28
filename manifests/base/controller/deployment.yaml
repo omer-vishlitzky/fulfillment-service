@@ -33,6 +33,9 @@ spec:
       - name: tls
         secret:
           secretName: fulfillment-controller-tls
+      - name: credentials
+        secret:
+          secretName: fulfillment-controller-credentials
       containers:
       - name: controller
         image: fulfillment-service
@@ -42,6 +45,9 @@ spec:
           mountPath: /etc/fulfillment-controller/tls/cas
         - name: tls
           mountPath: /etc/fulfillment-controller/tls
+        - name: credentials
+          mountPath: /etc/fulfillment-controller/credentials
+          readOnly: true
         command:
         - /usr/local/bin/fulfillment-service
         - start
@@ -50,7 +56,9 @@ spec:
         - --log-headers=false
         - --log-bodies=false
         - --ca-file=/etc/fulfillment-controller/tls/cas
-        - --token-file=/var/run/secrets/kubernetes.io/serviceaccount/token
+        - --auth-issuer-url=https://keycloak.keycloak.svc.cluster.local:8000/realms/osac
+        - --auth-client-id-file=/etc/fulfillment-controller/credentials/client-id
+        - --auth-client-secret-file=/etc/fulfillment-controller/credentials/client-secret
         - --grpc-server-address=fulfillment-internal-api:8001
         - --grpc-keep-alive=5m
         - --grpc-listener-address=0.0.0.0:8000

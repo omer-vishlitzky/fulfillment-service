@@ -18,6 +18,10 @@ metadata:
   name: keycloak-realm
 data:
   {{- $realm := .Files.Get "files/realm.json" | fromJson }}
-  {{- $_ := set $realm "groups" .Values.groups }}
-  {{- $_ := set $realm "users" .Values.users }}
+  {{- $_ := set $realm "groups" (concat $realm.groups .Values.groups) }}
+  {{- $_ := set $realm "users" (concat $realm.users .Values.users) }}
+  {{- $_ := set $realm "clients" (concat $realm.clients .Values.clients) }}
+  {{- range .Values.clients }}
+  {{- $_ := set $realm.roles.client .clientId (list) }}
+  {{- end }}
   osac-realm.json: {{ $realm | toJson | b64enc }}

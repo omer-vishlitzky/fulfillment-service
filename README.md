@@ -315,6 +315,39 @@ To clean up a preserved cluster manually:
 $ kind delete cluster --name fulfillment-service-it
 ```
 
+### Client secret for service accounts
+
+The integration tests automatically create two Keycloak service account clients: `osac-admin` and
+`osac-controller`. By default, a random secret is generated for them. If you want to use a known
+secret, for example to log in with the CLI afterwards, you can set the `IT_CLIENT_SECRET`
+environment variable:
+
+```bash
+$ IT_KEEP_KIND=true IT_CLIENT_SECRET=my-secret ginkgo run --label-filter setup it
+```
+
+Once the cluster is running, you can log in using the credentials flow:
+
+```bash
+$ osac login \
+--ca-file bundle.pem \
+--oauth-flow credentials \
+--oauth-client-id osac-admin \
+--oauth-client-secret my-secret \
+--private \
+https://fulfillment-internal-api.osac.svc.cluster.local:8000
+```
+
+The same secret is shared by both `osac-admin` and `osac-controller`.
+
+The `--ca-file` flag should point to a file containing the trusted CA certificates. In the default
+installation, the CA bundle is stored in the `ca-bundle` ConfigMap created by _trust-manager_. You
+can extract it with:
+
+```bash
+$ kubectl get configmap ca-bundle -n osac -o jsonpath='{.data.bundle\.pem}' > bundle.pem
+```
+
 ### Debugging in the integration tests environment
 
 In the integration tests environment you can use the usual Kubernetes tools and logs for

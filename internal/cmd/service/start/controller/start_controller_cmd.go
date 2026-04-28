@@ -34,8 +34,12 @@ import (
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
@@ -303,11 +307,17 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		return fmt.Errorf("failed to wait for server to be ready: %w", err)
 	}
 
+	// Create scheme for typed OSAC CRD access on hub clusters:
+	hubScheme := runtime.NewScheme()
+	_ = osacv1alpha1.AddToScheme(hubScheme)
+	_ = corev1.AddToScheme(hubScheme)
+
 	// Create the hub cache:
 	r.logger.InfoContext(ctx, "Creating hub cache")
 	hubCache, err := controllers.NewHubCache().
 		SetLogger(r.logger).
 		SetConnection(r.client).
+		SetScheme(hubScheme).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create hub cache: %w", err)

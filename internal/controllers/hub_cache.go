@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	"google.golang.org/grpc"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -38,12 +39,14 @@ type HubCache interface {
 type HubCacheBuilder struct {
 	logger     *slog.Logger
 	connection *grpc.ClientConn
+	scheme     *runtime.Scheme
 }
 
 // hubCache caches the information and connections to the hubs.
 type hubCache struct {
 	logger      *slog.Logger
 	client      privatev1.HubsClient
+	scheme      *runtime.Scheme
 	entries     map[string]*HubEntry
 	entriesLock *sync.Mutex
 }
@@ -70,6 +73,12 @@ func (b *HubCacheBuilder) SetConnection(value *grpc.ClientConn) *HubCacheBuilder
 	return b
 }
 
+// SetScheme sets the Kubernetes scheme used for typed object support. This is mandatory.
+func (b *HubCacheBuilder) SetScheme(value *runtime.Scheme) *HubCacheBuilder {
+	b.scheme = value
+	return b
+}
+
 // Build uses the information stored in the buidler to create a new hub client cache.
 func (b *HubCacheBuilder) Build() (result HubCache, err error) {
 	// Check parameters:
@@ -81,11 +90,16 @@ func (b *HubCacheBuilder) Build() (result HubCache, err error) {
 		err = errors.New("gRPC connection is mandatory")
 		return
 	}
+	if b.scheme == nil {
+		err = errors.New("scheme is mandatory")
+		return
+	}
 
 	// Create and populate the object:
 	result = &hubCache{
 		logger:      b.logger,
 		client:      privatev1.NewHubsClient(b.connection),
+		scheme:      b.scheme,
 		entries:     map[string]*HubEntry{},
 		entriesLock: &sync.Mutex{},
 	}
@@ -119,7 +133,7 @@ func (r *hubCache) create(ctx context.Context, id string) (result *HubEntry, err
 	if err != nil {
 		return
 	}
-	client, err := clnt.New(config, clnt.Options{})
+	client, err := clnt.New(config, clnt.Options{Scheme: r.scheme})
 	if err != nil {
 		return
 	}

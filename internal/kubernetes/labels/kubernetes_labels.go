@@ -16,29 +16,31 @@ package labels
 import (
 	"fmt"
 
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 )
 
+var group = osacv1alpha1.GroupVersion.Group
+
 // ClusterOrderUuid is the label where the fulfillment API will write the identifier of the order.
-var ClusterOrderUuid = fmt.Sprintf("%s/%s", gvks.ClusterOrder.Group, "clusterorder-uuid")
+var ClusterOrderUuid = fmt.Sprintf("%s/%s", group, "clusterorder-uuid")
 
 // ComputeInstanceUuid is the label where the fulfillment API will write the identifier of the compute instance.
-var ComputeInstanceUuid = fmt.Sprintf("%s/%s", gvks.ComputeInstance.Group, "computeinstance-uuid")
+var ComputeInstanceUuid = fmt.Sprintf("%s/%s", group, "computeinstance-uuid")
 
 // SubnetUuid is the label where the fulfillment API will write the identifier of the subnet.
-var SubnetUuid = fmt.Sprintf("%s/%s", gvks.Subnet.Group, "subnet-uuid")
+var SubnetUuid = fmt.Sprintf("%s/%s", group, "subnet-uuid")
 
 // VirtualNetworkUuid is the label where the fulfillment API will write the identifier of the virtual network.
-var VirtualNetworkUuid = fmt.Sprintf("%s/%s", gvks.VirtualNetwork.Group, "virtualnetwork-uuid")
+var VirtualNetworkUuid = fmt.Sprintf("%s/%s", group, "virtualnetwork-uuid")
 
 // NetworkClassUuid is the label where the fulfillment API will write the identifier of the network class.
-var NetworkClassUuid = fmt.Sprintf("%s/%s", gvks.NetworkClass.Group, "networkclass-uuid")
+var NetworkClassUuid = fmt.Sprintf("%s/%s", group, "networkclass-uuid")
 
 // PublicIPPoolUuid is the label where the fulfillment API will write the identifier of the public IP pool.
-var PublicIPPoolUuid = fmt.Sprintf("%s/%s", gvks.PublicIPPool.Group, "publicippool-uuid")
+var PublicIPPoolUuid = fmt.Sprintf("%s/%s", group, "publicippool-uuid")
 
 // SecurityGroupUuid is the label where the fulfillment API will write the identifier of the security group.
-var SecurityGroupUuid = fmt.Sprintf("%s/%s", gvks.SecurityGroup.Group, "securitygroup-uuid")
+var SecurityGroupUuid = fmt.Sprintf("%s/%s", group, "securitygroup-uuid")
 
 // PublicIPUuid is the label where the fulfillment API will write the identifier of the public IP.
-var PublicIPUuid = fmt.Sprintf("%s/%s", gvks.PublicIP.Group, "publicip-uuid")
+var PublicIPUuid = fmt.Sprintf("%s/%s", group, "publicip-uuid")

@@ -35,6 +35,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/network"
 	"github.com/osac-project/fulfillment-service/internal/oauth"
 	"github.com/osac-project/fulfillment-service/internal/testing"
+	"github.com/osac-project/fulfillment-service/internal/uuid"
 	"go.yaml.in/yaml/v2"
 	"google.golang.org/grpc"
 	grpccodes "google.golang.org/grpc/codes"
@@ -77,13 +78,14 @@ var OIDCTenants = map[string][]string{
 // ToolBuilder contains the data and logic needed to create an instance of the integration test tool. Don't create
 // instances of this directly, use the NewTool function instead.
 type ToolBuilder struct {
-	logger      *slog.Logger
-	projectDir  string
-	crdFiles    []string
-	keepCluster bool
-	keepService bool
-	deployMode  string
-	debug       bool
+	logger       *slog.Logger
+	projectDir   string
+	crdFiles     []string
+	keepCluster  bool
+	keepService  bool
+	deployMode   string
+	debug        bool
+	clientSecret string
 }
 
 // Tool is an instance of the integration test tool that sets up the test environment. Don't create instances of this
@@ -104,6 +106,7 @@ type Tool struct {
 	kcFile        string
 	internalView  *ToolView
 	externalView  *ToolView
+	clientSecret  string
 }
 
 // ToolView contains the gRPC connections and HTTP clients that can be used to connect to the cluster. This is a
@@ -179,6 +182,13 @@ func (b *ToolBuilder) SetDebug(value bool) *ToolBuilder {
 	return b
 }
 
+// SetClientSecret sets the client secret that will be used for the service accounts that will be created. If not
+// specified then a random secret will be generated.
+func (b *ToolBuilder) SetClientSecret(value string) *ToolBuilder {
+	b.clientSecret = value
+	return b
+}
+
 // Build uses the data stored in the builder to create a new instance of the integration test tool.
 func (b *ToolBuilder) Build() (result *Tool, err error) {
 	// Check parameters:
@@ -203,15 +213,22 @@ func (b *ToolBuilder) Build() (result *Tool, err error) {
 		}
 	}
 
+	// Generate a random client secret if not specified:
+	clientSecret := b.clientSecret
+	if clientSecret == "" {
+		clientSecret = uuid.New()
+	}
+
 	// Create and populate the object:
 	result = &Tool{
-		logger:      b.logger,
-		projectDir:  projectDir,
-		crdFiles:    slices.Clone(b.crdFiles),
-		keepKind:    b.keepCluster,
-		keepService: b.keepService,
-		deployMode:  b.deployMode,
-		debug:       b.debug,
+		logger:       b.logger,
+		projectDir:   projectDir,
+		crdFiles:     slices.Clone(b.crdFiles),
+		keepKind:     b.keepCluster,
+		keepService:  b.keepService,
+		deployMode:   b.deployMode,
+		debug:        b.debug,
+		clientSecret: clientSecret,
 	}
 	return
 }
@@ -725,6 +742,13 @@ func (t *Tool) deployKeycloak(ctx context.Context) error {
 		return fmt.Errorf("failed to split host and port from '%s': %w", keycloakAddr, err)
 	}
 
+	// Prepare the lists of clients, users and groups:
+	var (
+		clients []map[string]any
+		users   []map[string]any
+		groups  []map[string]any
+	)
+
 	// Prepare a map containing the values for the chart:
 	valuesData := map[string]any{
 		"variant":  "kind",
@@ -781,97 +805,140 @@ func (t *Tool) deployKeycloak(ctx context.Context) error {
 				},
 			},
 		},
-		"groups": []any{
-			map[string]any{
-				"name": adminsGroup,
-				"path": fmt.Sprintf("/%s", adminsGroup),
-			},
-			map[string]any{
-				"name": usersGroup,
-				"path": fmt.Sprintf("/%s", usersGroup),
-			},
-		},
-		"users": []any{
-			map[string]any{
-				"username":      adminUsername,
-				"enabled":       true,
-				"firstName":     "Ms.",
-				"lastName":      "Admin",
-				"email":         fmt.Sprintf("%s@example.com", adminUsername),
-				"emailVerified": true,
-				"groups": []string{
-					fmt.Sprintf("/%s", adminsGroup),
-				},
-				"credentials": []any{
-					map[string]any{
-						"type":      "password",
-						"value":     adminsPassword,
-						"temporary": false,
-					},
-				},
-			},
-			map[string]any{
-				"username":      userUsername,
-				"enabled":       true,
-				"firstName":     "Mr.",
-				"lastName":      "User",
-				"email":         fmt.Sprintf("%s@example.com", userUsername),
-				"emailVerified": true,
-				"groups": []string{
-					fmt.Sprintf("/%s", usersGroup),
-				},
-				"credentials": []any{
-					map[string]any{
-						"type":      "password",
-						"value":     usersPassword,
-						"temporary": false,
-					},
-				},
-			},
-		},
 	}
 
-	// Add the OIDC tenants
-	groupsAdded := []string{}
-	for oidcUser, oidcGroups := range OIDCTenants {
-		newUser := map[string]any{
-			"username":      oidcUser,
-			"enabled":       true,
-			"firstName":     oidcUser,
-			"lastName":      oidcUser,
-			"email":         fmt.Sprintf("%s@example.com", oidcUser),
-			"emailVerified": true,
-			"credentials": []any{
-				map[string]any{
-					"type":      "password",
-					"value":     usersPassword,
-					"temporary": false,
-				},
-			},
-			"groups": []string{},
-		}
-
-		for _, oidcGroup := range oidcGroups {
-			newUser["groups"] = append(newUser["groups"].([]string), fmt.Sprintf("/%s", oidcGroup))
-
-			if !slices.Contains(groupsAdded, oidcGroup) {
-				valuesData["groups"] = append(valuesData["groups"].([]any), map[string]any{
-					"name": oidcGroup,
-					"path": fmt.Sprintf("/%s", oidcGroup),
-				})
-				groupsAdded = append(groupsAdded, oidcGroup)
+	// Add the groups:
+	addGroup := func(name string) {
+		for _, group := range groups {
+			if group["name"] == name {
+				return
 			}
 		}
+		groups = append(
+			groups,
+			map[string]any{
+				"name": name,
+				"path": fmt.Sprintf("/%s", name),
+			},
+		)
+	}
+	addGroup(adminsGroup)
+	addGroup(usersGroup)
 
-		valuesData["users"] = append(valuesData["users"].([]any), newUser)
+	// Add the users:
+	type userData struct {
+		Name     string
+		First    string
+		Last     string
+		Groups   []string
+		Password string
+	}
+	addUser := func(data userData) {
+		groups := make([]string, len(data.Groups))
+		for i, name := range data.Groups {
+			addGroup(name)
+			groups[i] = fmt.Sprintf("/%s", name)
+		}
+		users = append(
+			users,
+			map[string]any{
+				"username":      data.Name,
+				"enabled":       true,
+				"firstName":     data.First,
+				"lastName":      data.Last,
+				"email":         fmt.Sprintf("%s@example.com", data.Name),
+				"emailVerified": true,
+				"groups":        groups,
+				"credentials": []any{
+					map[string]any{
+						"type":      "password",
+						"value":     data.Password,
+						"temporary": false,
+					},
+				},
+			},
+		)
+	}
+	addUser(userData{
+		Name:     adminUsername,
+		First:    "Ms.",
+		Last:     "Admin",
+		Groups:   []string{adminsGroup},
+		Password: adminsPassword,
+	})
+	addUser(userData{
+		Name:     userUsername,
+		First:    "Mr.",
+		Last:     "User",
+		Groups:   []string{usersGroup},
+		Password: usersPassword,
+	})
+
+	// Add the OIDC tenants
+	for oidcUser, oidcGroups := range OIDCTenants {
+		addUser(userData{
+			Name:     oidcUser,
+			First:    oidcUser,
+			Last:     oidcUser,
+			Groups:   oidcGroups,
+			Password: usersPassword,
+		})
 	}
 
+	// Add the service account clients and their corresponding users:
+	type serviceAccountData struct {
+		Name        string
+		Description string
+		ClientId    string
+	}
+	addServiceAccount := func(data serviceAccountData) {
+		clients = append(
+			clients,
+			map[string]any{
+				"name":                      data.Name,
+				"description":               data.Description,
+				"clientId":                  data.ClientId,
+				"enabled":                   true,
+				"clientAuthenticatorType":   "client-secret",
+				"secret":                    t.clientSecret,
+				"serviceAccountsEnabled":    true,
+				"publicClient":              false,
+				"standardFlowEnabled":       false,
+				"implicitFlowEnabled":       false,
+				"directAccessGrantsEnabled": false,
+				"protocol":                  "openid-connect",
+				"fullScopeAllowed":          true,
+			},
+		)
+		users = append(
+			users, map[string]any{
+				"username":               fmt.Sprintf("service-account-%s", data.ClientId),
+				"enabled":                true,
+				"serviceAccountClientId": data.ClientId,
+			},
+		)
+	}
+	addServiceAccount(serviceAccountData{
+		Name:        "OSAC administrator",
+		Description: "Service account for the OSAC administrator",
+		ClientId:    adminClientId,
+	})
+	addServiceAccount(serviceAccountData{
+		Name:        "OSAC controller",
+		Description: "Service account for the OSAC controller",
+		ClientId:    controllerClientId,
+	})
+
+	// Add the prepared clients, groups and users to the values:
+	valuesData["clients"] = clients
+	valuesData["groups"] = groups
+	valuesData["users"] = users
+
+	// Write the values to a temporary file:
 	valuesBytes, err := yaml.Marshal(valuesData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal values to YAML: %w", err)
 	}
-
-	// Write the values to a temporary file:
 	valuesFile := filepath.Join(t.tmpDir, "keycloak-values.yaml")
 	err = os.WriteFile(valuesFile, valuesBytes, 0400)
 	if err != nil {
@@ -1763,4 +1830,10 @@ const (
 	userUsername  = "user"
 	usersPassword = "password"
 	usersGroup    = "users"
+)
+
+// Details of the Keycloak service accounts:
+const (
+	adminClientId      = "osac-admin"
+	controllerClientId = "osac-controller"
 )

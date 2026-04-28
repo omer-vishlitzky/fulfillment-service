@@ -71,20 +71,20 @@ database:
   # `uri` key but the connection parameter name is `url`.
   connection: []
 
-# Groups to create in the Keycloak realm. These are copied directoy to the 'groups' field of the realm JSON file, so you
-# need to provide at least the 'name' and 'path' fields, for example:
+# Additional groups to add to the Keycloak realm. These are appended to the existing groups defined in the base realm
+# JSON file. You need to provide at least the 'name' and 'path' fields, for example:
 #
 # - name: admins
 #   path: /admins
 #
 # Refer to the Keycloak documentation for more details about the fields for groups.
 #
-# The default value is an empty list, meaning no groups will be created.
+# The default value is an empty list, meaning no additional groups will be added.
 groups: []
 
-# Users to create in the Keycloak realm. These are copied directly to the 'users' field of the realm JSON file, so you
-# need to provide at least the 'username' field. For more complete users you will probably want to add more fields,
-# something like this:
+# Additional users to add to the Keycloak realm. These are appended to the existing users defined in the base realm
+# JSON file. You need to provide at least the 'username' field. For more complete users you will probably want to add
+# more fields, something like this:
 #
 # - username: alice
 #   enabled: true
@@ -107,5 +107,34 @@ groups: []
 #
 # Refer to the Keycloak documentation for more details about the fields for users.
 #
-# The default value is an empty list, meaning no users will be created.
+# The default value is an empty list, meaning no additional users will be added.
 users: []
+
+# Additional clients to add to the Keycloak realm. These are appended to the existing clients defined in the base realm
+# JSON file. This is useful for defining service accounts. For example:
+#
+# - clientId: my-client
+#   enabled: true
+#   clientAuthenticatorType: client-secret
+#   secret: my-secret
+#   serviceAccountsEnabled: true
+#   publicClient: false
+#   standardFlowEnabled: false
+#   implicitFlowEnabled: false
+#   directAccessGrantsEnabled: false
+#   protocol: openid-connect
+#   fullScopeAllowed: true
+#
+# When creating a service account client you will also need to add a corresponding user entry in the 'users' list with
+# the 'serviceAccountClientId' field set to the client identifier. The username must follow the convention
+# 'service-account-<clientId>'. For example:
+#
+# users:
+# - username: service-account-my-client
+#   enabled: true
+#   serviceAccountClientId: my-client
+#
+# Refer to the Keycloak documentation for more details about the fields for clients.
+#
+# The default value is an empty list, meaning no additional clients will be added.
+clients: []

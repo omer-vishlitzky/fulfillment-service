@@ -52,6 +52,10 @@ type Config struct {
 	// - REST gateway: 30002
 	// - Controller: 30003
 	Debug bool `json:"debug" envconfig:"debug" default:"false"`
+
+	// ClientSecret indicates the client secret that will be used for the service accounts that will be created. If
+	// not specified then a random secret will be generated.
+	ClientSecret string `json:"client_secret" envconfig:"client_secret" default:""`
 }
 
 var (
@@ -107,6 +111,7 @@ var _ = BeforeSuite(func() {
 		SetKeepService(config.KeepService).
 		SetDeployMode(config.DeployMode).
 		SetDebug(config.Debug).
+		SetClientSecret(config.ClientSecret).
 		AddCrdFile(filepath.Join("crds", "clusterorders.osac.openshift.io.yaml")).
 		AddCrdFile(filepath.Join("crds", "hostedclusters.hypershift.openshift.io.yaml")).
 		Build()

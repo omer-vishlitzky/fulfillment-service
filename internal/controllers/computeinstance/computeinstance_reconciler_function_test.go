@@ -21,15 +21,16 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -71,11 +72,12 @@ var _ = Describe("buildSpec", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify restartRequestedAt was added with correct format
-			Expect(spec["restartRequestedAt"]).To(Equal(requestedAt.Format(time.RFC3339)))
+			Expect(spec.RestartRequestedAt).ToNot(BeNil())
+			Expect(spec.RestartRequestedAt.Time).To(Equal(requestedAt))
 
 			// Verify other required fields are present
-			Expect(spec["templateID"]).To(Equal(template))
-			Expect(spec["templateParameters"]).ToNot(BeNil())
+			Expect(spec.TemplateID).To(Equal(template))
+			Expect(spec.TemplateParameters).ToNot(BeEmpty())
 		})
 
 		It("Includes explicit fields in spec map when present", func() {
@@ -114,30 +116,22 @@ var _ = Describe("buildSpec", func() {
 			spec, err := task.buildSpec(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(spec["cores"]).To(Equal(int64(4)))
-			Expect(spec["memoryGiB"]).To(Equal(int64(8)))
-			Expect(spec["runStrategy"]).To(Equal("Always"))
-			Expect(spec["sshKey"]).To(Equal("ssh-rsa AAAA..."))
+			Expect(spec.Cores).To(Equal(int32(4)))
+			Expect(spec.MemoryGiB).To(Equal(int32(8)))
+			Expect(spec.RunStrategy).To(Equal(osacv1alpha1.RunStrategyType("Always")))
+			Expect(spec.SSHKey).To(Equal("ssh-rsa AAAA..."))
 
-			image := spec["image"].(map[string]any)
-			Expect(image["sourceType"]).To(Equal("registry"))
-			Expect(image["sourceRef"]).To(Equal("quay.io/fedora/fedora:latest"))
+			Expect(string(spec.Image.SourceType)).To(Equal("registry"))
+			Expect(spec.Image.SourceRef).To(Equal("quay.io/fedora/fedora:latest"))
 
-			bootDisk := spec["bootDisk"].(map[string]any)
-			Expect(bootDisk["sizeGiB"]).To(Equal(int64(20)))
-			Expect(bootDisk).ToNot(HaveKey("storageClass"))
+			Expect(spec.BootDisk.SizeGiB).To(Equal(int32(20)))
 
-			additionalDisks := spec["additionalDisks"].([]any)
-			Expect(additionalDisks).To(HaveLen(2))
-			disk0 := additionalDisks[0].(map[string]any)
-			Expect(disk0["sizeGiB"]).To(Equal(int64(100)))
-			Expect(disk0).ToNot(HaveKey("storageClass"))
-			disk1 := additionalDisks[1].(map[string]any)
-			Expect(disk1["sizeGiB"]).To(Equal(int64(50)))
-			Expect(disk1).ToNot(HaveKey("storageClass"))
+			Expect(spec.AdditionalDisks).To(HaveLen(2))
+			Expect(spec.AdditionalDisks[0].SizeGiB).To(Equal(int32(100)))
+			Expect(spec.AdditionalDisks[1].SizeGiB).To(Equal(int32(50)))
 
-			userDataRef := spec["userDataSecretRef"].(map[string]any)
-			Expect(userDataRef["name"]).To(Equal("test-explicit-fields-user-data"))
+			Expect(spec.UserDataSecretRef).ToNot(BeNil())
+			Expect(spec.UserDataSecretRef.Name).To(Equal("test-explicit-fields-user-data"))
 		})
 
 		It("Excludes explicit fields from spec map when not set", func() {
@@ -156,14 +150,14 @@ var _ = Describe("buildSpec", func() {
 			spec, err := task.buildSpec(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(spec).ToNot(HaveKey("cores"))
-			Expect(spec).ToNot(HaveKey("memoryGiB"))
-			Expect(spec).ToNot(HaveKey("runStrategy"))
-			Expect(spec).ToNot(HaveKey("sshKey"))
-			Expect(spec).ToNot(HaveKey("image"))
-			Expect(spec).ToNot(HaveKey("bootDisk"))
-			Expect(spec).ToNot(HaveKey("additionalDisks"))
-			Expect(spec).ToNot(HaveKey("userDataSecretRef"))
+			Expect(spec.Cores).To(BeZero())
+			Expect(spec.MemoryGiB).To(BeZero())
+			Expect(spec.RunStrategy).To(BeEmpty())
+			Expect(spec.SSHKey).To(BeEmpty())
+			Expect(spec.Image).To(Equal(osacv1alpha1.ImageSpec{}))
+			Expect(spec.BootDisk).To(Equal(osacv1alpha1.DiskSpec{}))
+			Expect(spec.AdditionalDisks).To(BeEmpty())
+			Expect(spec.UserDataSecretRef).To(BeNil())
 		})
 
 		It("Excludes restartRequestedAt from spec map when not set", func() {
@@ -193,24 +187,26 @@ var _ = Describe("buildSpec", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify restartRequestedAt was NOT added
-			Expect(spec).ToNot(HaveKey("restartRequestedAt"))
+			Expect(spec.RestartRequestedAt).To(BeNil())
 
 			// Verify other required fields are present
-			Expect(spec["templateID"]).To(Equal(template))
-			Expect(spec["templateParameters"]).ToNot(BeNil())
+			Expect(spec.TemplateID).To(Equal(template))
+			Expect(spec.TemplateParameters).ToNot(BeEmpty())
 		})
 	})
 })
 
-// newComputeInstanceCR creates an unstructured ComputeInstance CR for use with the fake client.
-func newComputeInstanceCR(id, namespace, name string, deletionTimestamp *metav1.Time) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvks.ComputeInstance)
-	obj.SetNamespace(namespace)
-	obj.SetName(name)
-	obj.SetLabels(map[string]string{
-		labels.ComputeInstanceUuid: id,
-	})
+// newComputeInstanceCR creates a typed ComputeInstance CR for use with the fake client.
+func newComputeInstanceCR(id, namespace, name string, deletionTimestamp *metav1.Time) *osacv1alpha1.ComputeInstance {
+	obj := &osacv1alpha1.ComputeInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			Labels: map[string]string{
+				labels.ComputeInstanceUuid: id,
+			},
+		},
+	}
 	if deletionTimestamp != nil {
 		obj.SetDeletionTimestamp(deletionTimestamp)
 		obj.SetFinalizers([]string{"osac.openshift.io/computeinstance"})
@@ -267,6 +263,8 @@ var _ = Describe("delete", func() {
 
 	It("should remove finalizer when K8s object doesn't exist", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()
@@ -291,10 +289,8 @@ var _ = Describe("delete", func() {
 		cr := newComputeInstanceCR(ciID, hubNamespace, crName, nil)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.ComputeInstance.Group, Version: gvks.ComputeInstance.Version, Kind: gvks.ComputeInstance.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().
@@ -330,10 +326,8 @@ var _ = Describe("delete", func() {
 		cr := newComputeInstanceCR(ciID, hubNamespace, crName, &now)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.ComputeInstance.Group, Version: gvks.ComputeInstance.Version, Kind: gvks.ComputeInstance.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().
@@ -425,19 +419,19 @@ var _ = Describe("getSubnetCR", func() {
 	})
 
 	It("should return Subnet CR when one exists with matching label", func() {
-		subnetCR := &unstructured.Unstructured{}
-		subnetCR.SetGroupVersionKind(gvks.Subnet)
-		subnetCR.SetNamespace(hubNamespace)
-		subnetCR.SetName(subnetCRName)
-		subnetCR.SetLabels(map[string]string{
-			labels.SubnetUuid: subnetID,
-		})
+		subnetCR := &osacv1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      subnetCRName,
+				Labels: map[string]string{
+					labels.SubnetUuid: subnetID,
+				},
+			},
+		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -458,10 +452,8 @@ var _ = Describe("getSubnetCR", func() {
 
 	It("should return nil when no Subnet CR exists", func() {
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -479,27 +471,29 @@ var _ = Describe("getSubnetCR", func() {
 	})
 
 	It("should return error when multiple Subnet CRs match", func() {
-		subnetCR1 := &unstructured.Unstructured{}
-		subnetCR1.SetGroupVersionKind(gvks.Subnet)
-		subnetCR1.SetNamespace(hubNamespace)
-		subnetCR1.SetName("subnet-1")
-		subnetCR1.SetLabels(map[string]string{
-			labels.SubnetUuid: subnetID,
-		})
+		subnetCR1 := &osacv1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      "subnet-1",
+				Labels: map[string]string{
+					labels.SubnetUuid: subnetID,
+				},
+			},
+		}
 
-		subnetCR2 := &unstructured.Unstructured{}
-		subnetCR2.SetGroupVersionKind(gvks.Subnet)
-		subnetCR2.SetNamespace(hubNamespace)
-		subnetCR2.SetName("subnet-2")
-		subnetCR2.SetLabels(map[string]string{
-			labels.SubnetUuid: subnetID,
-		})
+		subnetCR2 := &osacv1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      "subnet-2",
+				Labels: map[string]string{
+					labels.SubnetUuid: subnetID,
+				},
+			},
+		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -535,19 +529,19 @@ var _ = Describe("buildSpec with subnetRef", func() {
 	})
 
 	It("should set subnetRef when subnet field present and Subnet CR exists", func() {
-		subnetCR := &unstructured.Unstructured{}
-		subnetCR.SetGroupVersionKind(gvks.Subnet)
-		subnetCR.SetNamespace(hubNamespace)
-		subnetCR.SetName(subnetCRName)
-		subnetCR.SetLabels(map[string]string{
-			labels.SubnetUuid: subnetID,
-		})
+		subnetCR := &osacv1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      subnetCRName,
+				Labels: map[string]string{
+					labels.SubnetUuid: subnetID,
+				},
+			},
+		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -570,12 +564,13 @@ var _ = Describe("buildSpec with subnetRef", func() {
 
 		spec, err := t.buildSpec(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec).To(HaveKey("subnetRef"))
-		Expect(spec["subnetRef"]).To(Equal(subnetCRName))
+		Expect(spec.SubnetRef).To(Equal(subnetCRName))
 	})
 
 	It("should not set subnetRef when no subnet field", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()
@@ -595,15 +590,13 @@ var _ = Describe("buildSpec with subnetRef", func() {
 
 		spec, err := t.buildSpec(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec).ToNot(HaveKey("subnetRef"))
+		Expect(spec.SubnetRef).To(BeEmpty())
 	})
 
 	It("should not set subnetRef when Subnet CR not found", func() {
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -625,31 +618,33 @@ var _ = Describe("buildSpec with subnetRef", func() {
 
 		spec, err := t.buildSpec(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec).ToNot(HaveKey("subnetRef"))
+		Expect(spec.SubnetRef).To(BeEmpty())
 	})
 
 	It("should not set subnetRef when multiple Subnet CRs exist", func() {
-		subnetCR1 := &unstructured.Unstructured{}
-		subnetCR1.SetGroupVersionKind(gvks.Subnet)
-		subnetCR1.SetNamespace(hubNamespace)
-		subnetCR1.SetName("subnet-1")
-		subnetCR1.SetLabels(map[string]string{
-			labels.SubnetUuid: subnetID,
-		})
+		subnetCR1 := &osacv1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      "subnet-1",
+				Labels: map[string]string{
+					labels.SubnetUuid: subnetID,
+				},
+			},
+		}
 
-		subnetCR2 := &unstructured.Unstructured{}
-		subnetCR2.SetGroupVersionKind(gvks.Subnet)
-		subnetCR2.SetNamespace(hubNamespace)
-		subnetCR2.SetName("subnet-2")
-		subnetCR2.SetLabels(map[string]string{
-			labels.SubnetUuid: subnetID,
-		})
+		subnetCR2 := &osacv1alpha1.Subnet{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      "subnet-2",
+				Labels: map[string]string{
+					labels.SubnetUuid: subnetID,
+				},
+			},
+		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -672,7 +667,7 @@ var _ = Describe("buildSpec with subnetRef", func() {
 
 		spec, err := t.buildSpec(ctx)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(spec).ToNot(HaveKey("subnetRef"))
+		Expect(spec.SubnetRef).To(BeEmpty())
 	})
 })
 
@@ -686,20 +681,24 @@ var _ = Describe("ensureUserDataSecret", func() {
 
 	var (
 		ctx   context.Context
-		owner *unstructured.Unstructured
+		owner *osacv1alpha1.ComputeInstance
 	)
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		owner = &unstructured.Unstructured{}
-		owner.SetGroupVersionKind(gvks.ComputeInstance)
-		owner.SetNamespace(hubNamespace)
-		owner.SetName(crName)
-		owner.SetUID(crUID)
+		owner = &osacv1alpha1.ComputeInstance{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: hubNamespace,
+				Name:      crName,
+				UID:       crUID,
+			},
+		}
 	})
 
 	It("should create a Secret with owner reference, labels, and content", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()
@@ -747,6 +746,8 @@ var _ = Describe("ensureUserDataSecret", func() {
 		existingSecret.SetName(ciID + userDataSecretSuffix)
 
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithObjects(existingSecret).
@@ -771,6 +772,8 @@ var _ = Describe("ensureUserDataSecret", func() {
 
 	It("should propagate error when Secret creation fails", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithInterceptorFuncs(interceptor.Funcs{
@@ -800,6 +803,8 @@ var _ = Describe("ensureUserDataSecret", func() {
 
 	It("should not create a Secret when userDataSecretName is empty", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()

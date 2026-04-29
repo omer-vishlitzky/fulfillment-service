@@ -23,14 +23,15 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
 )
@@ -174,19 +175,18 @@ func (t *task) update(ctx context.Context) error {
 	spec := t.buildSpec()
 
 	if existingObject == nil {
-		object := &unstructured.Unstructured{}
-		object.SetGroupVersionKind(gvks.PublicIPPool)
-		object.SetNamespace(t.hubNamespace)
-		object.SetGenerateName(objectPrefix)
-		object.SetLabels(map[string]string{
-			labels.PublicIPPoolUuid: t.publicIPPool.GetId(),
-		})
-		object.SetAnnotations(map[string]string{
-			annotations.Tenant: t.publicIPPool.GetMetadata().GetTenants()[0],
-		})
-		err = unstructured.SetNestedField(object.Object, spec, "spec")
-		if err != nil {
-			return err
+		object := &osacv1alpha1.PublicIPPool{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:    t.hubNamespace,
+				GenerateName: objectPrefix,
+				Labels: map[string]string{
+					labels.PublicIPPoolUuid: t.publicIPPool.GetId(),
+				},
+				Annotations: map[string]string{
+					annotations.Tenant: t.publicIPPool.GetMetadata().GetTenants()[0],
+				},
+			},
+			Spec: spec,
 		}
 		err = t.hubClient.Create(ctx, object)
 		if err != nil {
@@ -200,10 +200,7 @@ func (t *task) update(ctx context.Context) error {
 		)
 	} else {
 		update := existingObject.DeepCopy()
-		err = unstructured.SetNestedField(update.Object, spec, "spec")
-		if err != nil {
-			return err
-		}
+		update.Spec = spec
 		err = t.hubClient.Patch(ctx, update, clnt.MergeFrom(existingObject))
 		if err != nil {
 			return err
@@ -331,9 +328,8 @@ func (t *task) getHub(ctx context.Context) error {
 	return nil
 }
 
-func (t *task) getKubeObject(ctx context.Context) (*unstructured.Unstructured, error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.PublicIPPoolList)
+func (t *task) getKubeObject(ctx context.Context) (*osacv1alpha1.PublicIPPool, error) {
+	list := &osacv1alpha1.PublicIPPoolList{}
 	err := t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -349,7 +345,7 @@ func (t *task) getKubeObject(ctx context.Context) (*unstructured.Unstructured, e
 	if count > 1 {
 		return nil, fmt.Errorf("%w: found %d", errDuplicatePublicIPPool, count)
 	}
-	var result *unstructured.Unstructured
+	var result *osacv1alpha1.PublicIPPool
 	if count > 0 {
 		result = &items[0]
 	}
@@ -382,26 +378,21 @@ func (t *task) removeFinalizer() {
 	}
 }
 
-func (t *task) buildSpec() map[string]any {
-	spec := map[string]any{}
-
-	cidrs := t.publicIPPool.GetSpec().GetCidrs()
-	cidrList := make([]any, len(cidrs))
-	for i, c := range cidrs {
-		cidrList[i] = c
+func (t *task) buildSpec() osacv1alpha1.PublicIPPoolSpec {
+	spec := osacv1alpha1.PublicIPPoolSpec{
+		CIDRs: t.publicIPPool.GetSpec().GetCidrs(),
 	}
-	spec["cidrs"] = cidrList
 
 	switch t.publicIPPool.GetSpec().GetIpFamily() {
 	case privatev1.IPFamily_IP_FAMILY_IPV4:
-		spec["ipFamily"] = "IPv4"
+		spec.IPFamily = "IPv4"
 	case privatev1.IPFamily_IP_FAMILY_IPV6:
-		spec["ipFamily"] = "IPv6"
+		spec.IPFamily = "IPv6"
 	}
 
 	implStrategy := t.publicIPPool.GetSpec().GetImplementationStrategy()
 	if implStrategy != "" {
-		spec["implementationStrategy"] = implStrategy
+		spec.ImplementationStrategy = implStrategy
 	}
 
 	return spec

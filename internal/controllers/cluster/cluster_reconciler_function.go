@@ -24,14 +24,15 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
 	"github.com/osac-project/fulfillment-service/internal/utils"
@@ -198,35 +199,25 @@ func (t *task) update(ctx context.Context) error {
 	}
 
 	// Prepare the changes to the spec:
-	nodeRequests := t.prepareNodeRequests()
-	templateParameters, err := utils.ConvertTemplateParametersToJSON(t.cluster.GetSpec().GetTemplateParameters())
+	spec, err := t.buildSpec()
 	if err != nil {
 		return err
 	}
-	spec := map[string]any{
-		"templateID":         t.cluster.GetSpec().GetTemplate(),
-		"templateParameters": templateParameters,
-		"nodeRequests":       nodeRequests,
-	}
-
-	// Add explicit spec fields if present:
-	t.addExplicitFields(spec)
 
 	// Create or update the Kubernetes object:
 	if object == nil {
-		object := &unstructured.Unstructured{}
-		object.SetGroupVersionKind(gvks.ClusterOrder)
-		object.SetNamespace(t.hubNamespace)
-		object.SetGenerateName(objectPrefix)
-		object.SetLabels(map[string]string{
-			labels.ClusterOrderUuid: t.cluster.GetId(),
-		})
-		object.SetAnnotations(map[string]string{
-			annotations.Tenant: t.cluster.GetMetadata().GetTenants()[0],
-		})
-		err = unstructured.SetNestedField(object.Object, spec, "spec")
-		if err != nil {
-			return err
+		object := &osacv1alpha1.ClusterOrder{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:    t.hubNamespace,
+				GenerateName: objectPrefix,
+				Labels: map[string]string{
+					labels.ClusterOrderUuid: t.cluster.GetId(),
+				},
+				Annotations: map[string]string{
+					annotations.Tenant: t.cluster.GetMetadata().GetTenants()[0],
+				},
+			},
+			Spec: spec,
 		}
 		err = t.hubClient.Create(ctx, object)
 		if err != nil {
@@ -240,10 +231,7 @@ func (t *task) update(ctx context.Context) error {
 		)
 	} else {
 		update := object.DeepCopy()
-		err = unstructured.SetNestedField(update.Object, spec, "spec")
-		if err != nil {
-			return err
-		}
+		update.Spec = spec
 		err = t.hubClient.Patch(ctx, update, clnt.MergeFrom(object))
 		if err != nil {
 			return err
@@ -298,33 +286,55 @@ func (t *task) validateTenant() error {
 	return nil
 }
 
-func (t *task) addExplicitFields(spec map[string]any) {
+// buildSpec constructs the spec for the Kubernetes ClusterOrder object based on the
+// cluster from the database.
+func (t *task) buildSpec() (osacv1alpha1.ClusterOrderSpec, error) {
+	templateParameters, err := utils.ConvertTemplateParametersToJSON(t.cluster.GetSpec().GetTemplateParameters())
+	if err != nil {
+		return osacv1alpha1.ClusterOrderSpec{}, err
+	}
+	spec := osacv1alpha1.ClusterOrderSpec{
+		TemplateID:         t.cluster.GetSpec().GetTemplate(),
+		TemplateParameters: templateParameters,
+		NodeRequests:       t.prepareNodeRequests(),
+	}
+
+	// Add explicit spec fields if present:
+	t.addExplicitFields(&spec)
+
+	return spec, nil
+}
+
+func (t *task) addExplicitFields(spec *osacv1alpha1.ClusterOrderSpec) {
 	clusterSpec := t.cluster.GetSpec()
 	if clusterSpec.HasPullSecret() {
-		spec["pullSecret"] = clusterSpec.GetPullSecret()
+		spec.PullSecret = clusterSpec.GetPullSecret()
 	}
 	if clusterSpec.HasSshPublicKey() {
-		spec["sshPublicKey"] = clusterSpec.GetSshPublicKey()
+		spec.SSHPublicKey = clusterSpec.GetSshPublicKey()
 	}
 	if clusterSpec.HasReleaseImage() {
-		spec["releaseImage"] = clusterSpec.GetReleaseImage()
+		spec.ReleaseImage = clusterSpec.GetReleaseImage()
 	}
 	if clusterSpec.HasNetwork() {
-		network := map[string]any{}
+		network := &osacv1alpha1.ClusterNetworkSpec{}
+		hasFields := false
 		if clusterSpec.GetNetwork().HasPodCidr() {
-			network["podCIDR"] = clusterSpec.GetNetwork().GetPodCidr()
+			network.PodCIDR = clusterSpec.GetNetwork().GetPodCidr()
+			hasFields = true
 		}
 		if clusterSpec.GetNetwork().HasServiceCidr() {
-			network["serviceCIDR"] = clusterSpec.GetNetwork().GetServiceCidr()
+			network.ServiceCIDR = clusterSpec.GetNetwork().GetServiceCidr()
+			hasFields = true
 		}
-		if len(network) > 0 {
-			spec["network"] = network
+		if hasFields {
+			spec.Network = network
 		}
 	}
 }
 
-func (t *task) prepareNodeRequests() any {
-	var nodeRequests []any
+func (t *task) prepareNodeRequests() []osacv1alpha1.NodeRequest {
+	var nodeRequests []osacv1alpha1.NodeRequest
 	for _, nodeSet := range t.cluster.GetSpec().GetNodeSets() {
 		nodeRequest := t.prepareNodeRequest(nodeSet)
 		nodeRequests = append(nodeRequests, nodeRequest)
@@ -332,10 +342,10 @@ func (t *task) prepareNodeRequests() any {
 	return nodeRequests
 }
 
-func (t *task) prepareNodeRequest(nodeSet *privatev1.ClusterNodeSet) any {
-	return map[string]any{
-		"resourceClass": nodeSet.GetHostType(),
-		"numberOfNodes": int64(nodeSet.GetSize()),
+func (t *task) prepareNodeRequest(nodeSet *privatev1.ClusterNodeSet) osacv1alpha1.NodeRequest {
+	return osacv1alpha1.NodeRequest{
+		ResourceClass: nodeSet.GetHostType(),
+		NumberOfNodes: int(nodeSet.GetSize()),
 	}
 }
 
@@ -421,9 +431,8 @@ func (t *task) getHub(ctx context.Context) error {
 	return nil
 }
 
-func (t *task) getKubeObject(ctx context.Context) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.ClusterOrderList)
+func (t *task) getKubeObject(ctx context.Context) (result *osacv1alpha1.ClusterOrder, err error) {
+	list := &osacv1alpha1.ClusterOrderList{}
 	err = t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),

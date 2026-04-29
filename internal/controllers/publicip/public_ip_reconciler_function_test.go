@@ -20,12 +20,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -33,7 +32,6 @@ import (
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 )
 
@@ -67,8 +65,8 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec["pool"]).To(Equal("pool-abc123"))
-		Expect(spec["computeInstance"]).To(Equal("ci-xyz789"))
+		Expect(spec.Pool).To(Equal("pool-abc123"))
+		Expect(spec.ComputeInstance).To(Equal("ci-xyz789"))
 	})
 
 	It("Includes only pool when computeInstance is absent", func() {
@@ -83,8 +81,8 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec["pool"]).To(Equal("pool-abc456"))
-		Expect(spec).ToNot(HaveKey("computeInstance"))
+		Expect(spec.Pool).To(Equal("pool-abc456"))
+		Expect(spec.ComputeInstance).To(BeEmpty())
 	})
 
 	It("Does not include status fields", func() {
@@ -106,21 +104,24 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec).ToNot(HaveKey("address"))
-		Expect(spec).ToNot(HaveKey("state"))
-		Expect(spec).ToNot(HaveKey("hub"))
+		// Verify the spec struct only contains spec fields, not status fields.
+		// The PublicIPSpec struct has Pool and ComputeInstance fields only.
+		Expect(spec.Pool).To(Equal("pool-abc789"))
+		Expect(spec.ComputeInstance).To(Equal("ci-xyz789"))
 	})
 })
 
-// newPublicIPCR creates an unstructured PublicIP CR for use with the fake client.
-func newPublicIPCR(id, namespace, name string, deletionTimestamp *metav1.Time) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvks.PublicIP)
-	obj.SetNamespace(namespace)
-	obj.SetName(name)
-	obj.SetLabels(map[string]string{
-		labels.PublicIPUuid: id,
-	})
+// newPublicIPCR creates a typed PublicIP CR for use with the fake client.
+func newPublicIPCR(id, namespace, name string, deletionTimestamp *metav1.Time) *osacv1alpha1.PublicIP {
+	obj := &osacv1alpha1.PublicIP{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			Labels: map[string]string{
+				labels.PublicIPUuid: id,
+			},
+		},
+	}
 	if deletionTimestamp != nil {
 		obj.SetDeletionTimestamp(deletionTimestamp)
 		obj.SetFinalizers([]string{"osac.openshift.io/publicip"})
@@ -177,6 +178,7 @@ var _ = Describe("delete", func() {
 
 	It("should remove finalizer when K8s object doesn't exist", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()
@@ -201,10 +203,7 @@ var _ = Describe("delete", func() {
 		cr := newPublicIPCR(publicIPID, hubNamespace, crName, nil)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.PublicIP.Group, Version: gvks.PublicIP.Version, Kind: gvks.PublicIP.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().
@@ -240,10 +239,7 @@ var _ = Describe("delete", func() {
 		cr := newPublicIPCR(publicIPID, hubNamespace, crName, &now)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.PublicIP.Group, Version: gvks.PublicIP.Version, Kind: gvks.PublicIP.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().

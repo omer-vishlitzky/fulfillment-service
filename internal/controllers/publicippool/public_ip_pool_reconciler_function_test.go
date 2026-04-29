@@ -20,11 +20,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -33,7 +32,6 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 )
 
@@ -51,10 +49,8 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec).ToNot(HaveKey("ipv4"))
-		Expect(spec).ToNot(HaveKey("ipv6"))
-		Expect(spec["cidrs"]).To(Equal([]any{"203.0.113.0/24", "198.51.100.0/24"}))
-		Expect(spec["ipFamily"]).To(Equal("IPv4"))
+		Expect(spec.CIDRs).To(Equal([]string{"203.0.113.0/24", "198.51.100.0/24"}))
+		Expect(spec.IPFamily).To(Equal("IPv4"))
 	})
 
 	It("Maps IPv6 family to flat spec fields", func() {
@@ -70,10 +66,8 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec).ToNot(HaveKey("ipv4"))
-		Expect(spec).ToNot(HaveKey("ipv6"))
-		Expect(spec["cidrs"]).To(Equal([]any{"2001:db8::/32"}))
-		Expect(spec["ipFamily"]).To(Equal("IPv6"))
+		Expect(spec.CIDRs).To(Equal([]string{"2001:db8::/32"}))
+		Expect(spec.IPFamily).To(Equal("IPv6"))
 	})
 
 	It("Includes implementationStrategy when set", func() {
@@ -90,7 +84,7 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec["implementationStrategy"]).To(Equal("metallb-l2"))
+		Expect(spec.ImplementationStrategy).To(Equal("metallb-l2"))
 	})
 
 	It("Omits implementationStrategy when empty", func() {
@@ -106,7 +100,7 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec).ToNot(HaveKey("implementationStrategy"))
+		Expect(spec.ImplementationStrategy).To(BeEmpty())
 	})
 
 })
@@ -153,15 +147,17 @@ var _ = Describe("validateIPFamily", func() {
 	})
 })
 
-// newPublicIPPoolCR creates an unstructured PublicIPPool CR for use with the fake client.
-func newPublicIPPoolCR(id, namespace, name string, deletionTimestamp *metav1.Time) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvks.PublicIPPool)
-	obj.SetNamespace(namespace)
-	obj.SetName(name)
-	obj.SetLabels(map[string]string{
-		labels.PublicIPPoolUuid: id,
-	})
+// newPublicIPPoolCR creates a typed PublicIPPool CR for use with the fake client.
+func newPublicIPPoolCR(id, namespace, name string, deletionTimestamp *metav1.Time) *osacv1alpha1.PublicIPPool {
+	obj := &osacv1alpha1.PublicIPPool{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			Labels: map[string]string{
+				labels.PublicIPPoolUuid: id,
+			},
+		},
+	}
 	if deletionTimestamp != nil {
 		obj.SetDeletionTimestamp(deletionTimestamp)
 		obj.SetFinalizers([]string{"osac.openshift.io/publicippool"})
@@ -218,6 +214,7 @@ var _ = Describe("delete", func() {
 
 	It("should remove finalizer when K8s object doesn't exist", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()
@@ -242,10 +239,7 @@ var _ = Describe("delete", func() {
 		cr := newPublicIPPoolCR(poolID, hubNamespace, crName, nil)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.PublicIPPool.Group, Version: gvks.PublicIPPool.Version, Kind: gvks.PublicIPPool.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().
@@ -281,10 +275,7 @@ var _ = Describe("delete", func() {
 		cr := newPublicIPPoolCR(poolID, hubNamespace, crName, &now)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.PublicIPPool.Group, Version: gvks.PublicIPPool.Version, Kind: gvks.PublicIPPool.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().
@@ -556,18 +547,11 @@ func newTaskForUpdate(poolID, hubID string, hubCache controllers.HubCache) *task
 	}
 }
 
-// newSchemeWithPublicIPPoolList creates a runtime.Scheme that registers the PublicIPPool list GVK
+// newSchemeWithPublicIPPoolList creates a runtime.Scheme that registers the PublicIPPool types
 // so the fake client can handle List operations.
 func newSchemeWithPublicIPPoolList() *runtime.Scheme {
 	scheme := runtime.NewScheme()
-	scheme.AddKnownTypeWithName(
-		schema.GroupVersionKind{
-			Group:   gvks.PublicIPPool.Group,
-			Version: gvks.PublicIPPool.Version,
-			Kind:    gvks.PublicIPPool.Kind + "List",
-		},
-		&unstructured.UnstructuredList{},
-	)
+	_ = osacv1alpha1.AddToScheme(scheme)
 	return scheme
 }
 
@@ -708,13 +692,13 @@ var _ = Describe("update", func() {
 	It("should create K8s object when none exists", func() {
 		scheme := newSchemeWithPublicIPPoolList()
 		createCalled := false
-		var createdObj *unstructured.Unstructured
+		var createdObj *osacv1alpha1.PublicIPPool
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Create: func(ctx context.Context, client clnt.WithWatch, obj clnt.Object, opts ...clnt.CreateOption) error {
 					createCalled = true
-					createdObj = obj.(*unstructured.Unstructured)
+					createdObj = obj.(*osacv1alpha1.PublicIPPool)
 					return nil
 				},
 			}).
@@ -737,13 +721,9 @@ var _ = Describe("update", func() {
 		Expect(createdObj.GetNamespace()).To(Equal(hubNamespace))
 		Expect(createdObj.GetLabels()).To(HaveKeyWithValue(labels.PublicIPPoolUuid, poolID))
 		Expect(createdObj.GetAnnotations()).To(HaveKeyWithValue(annotations.Tenant, "tenant-1"))
-		Expect(createdObj.GroupVersionKind()).To(Equal(gvks.PublicIPPool))
 
-		spec, found, err := unstructured.NestedMap(createdObj.Object, "spec")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(spec).To(HaveKey("cidrs"))
-		Expect(spec).To(HaveKey("ipFamily"))
+		Expect(createdObj.Spec.CIDRs).ToNot(BeEmpty())
+		Expect(createdObj.Spec.IPFamily).ToNot(BeEmpty())
 	})
 
 	It("should patch existing K8s object", func() {

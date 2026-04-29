@@ -20,6 +20,7 @@ require (
 	github.com/mattn/go-isatty v0.0.21
 	github.com/neilotoole/jsoncolor v0.7.2
 	github.com/open-policy-agent/opa v1.15.2
+	github.com/osac-project/osac-operator/api v0.0.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	go.uber.org/mock v0.6.0

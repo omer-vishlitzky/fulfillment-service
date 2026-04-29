@@ -32,12 +32,14 @@ import (
 	"strings"
 	"time"
 
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 	"k8s.io/client-go/kubernetes"
+	kubescheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -635,7 +637,13 @@ func (k *Kind) createKubeClient(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create REST config for kind cluster '%s': %w", k.name, err)
 	}
-	k.kubeClient, err = crclient.NewWithWatch(restConfig, crclient.Options{})
+	scheme := kubescheme.Scheme
+	if err = osacv1alpha1.AddToScheme(scheme); err != nil {
+		return fmt.Errorf("failed to add osac/v1alpha1 to scheme: %w", err)
+	}
+	k.kubeClient, err = crclient.NewWithWatch(restConfig, crclient.Options{
+		Scheme: scheme,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create client for kind cluster '%s': %w", k.name, err)
 	}

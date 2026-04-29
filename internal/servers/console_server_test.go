@@ -28,17 +28,18 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
 	authpkg "github.com/osac-project/fulfillment-service/internal/auth"
 	"github.com/osac-project/fulfillment-service/internal/console"
 	"github.com/osac-project/fulfillment-service/internal/database"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 )
 
@@ -152,29 +153,37 @@ func newFakeHubClientFactory(client clnt.Client) HubClientFactory {
 	}
 }
 
-// newComputeInstanceCR creates an unstructured ComputeInstance CR for testing.
-func newComputeInstanceCR(id, namespace, vmNamespace, vmName string) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvks.ComputeInstance)
-	obj.SetName("ci-" + id)
-	obj.SetNamespace(namespace)
-	obj.SetLabels(map[string]string{
-		labels.ComputeInstanceUuid: id,
-	})
+// newComputeInstanceCR creates a typed ComputeInstance CR for testing.
+func newComputeInstanceCR(id, namespace, vmNamespace, vmName string) *osacv1alpha1.ComputeInstance {
+	obj := &osacv1alpha1.ComputeInstance{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "ci-" + id,
+			Namespace: namespace,
+			Labels: map[string]string{
+				labels.ComputeInstanceUuid: id,
+			},
+		},
+	}
 	if vmNamespace != "" || vmName != "" {
-		_ = unstructured.SetNestedMap(obj.Object, map[string]interface{}{
-			"namespace":                  vmNamespace,
-			"kubeVirtVirtualMachineName": vmName,
-		}, "status", "virtualMachineReference")
+		obj.Status.VirtualMachineReference = &osacv1alpha1.VirtualMachineReferenceType{
+			Namespace:                  vmNamespace,
+			KubeVirtVirtualMachineName: vmName,
+		}
 	}
 	return obj
 }
 
+// testScheme is a shared scheme for test fake clients with OSAC types registered.
+var testScheme = func() *runtime.Scheme {
+	s := runtime.NewScheme()
+	_ = osacv1alpha1.AddToScheme(s)
+	return s
+}()
+
 // newFakeClient creates a fake K8s client with the given objects.
 func newFakeClient(objects ...clnt.Object) clnt.Client {
-	scheme := runtime.NewScheme()
 	return fake.NewClientBuilder().
-		WithScheme(scheme).
+		WithScheme(testScheme).
 		WithObjects(objects...).
 		Build()
 }
@@ -274,6 +283,7 @@ var _ = Describe("Console Server", func() {
 				SetComputeInstancesServer(ciServer).
 				SetHubServer(hubServer).
 				SetTxManager(&mockTxManager{}).
+				SetScheme(testScheme).
 				Build()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(server).NotTo(BeNil())
@@ -301,6 +311,7 @@ var _ = Describe("Console Server", func() {
 				SetHubServer(hubServer).
 				SetHubClientFactory(newFakeHubClientFactory(fakeK8s)).
 				SetTxManager(&mockTxManager{}).
+				SetScheme(testScheme).
 				Build()
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -465,6 +476,7 @@ var _ = Describe("Console Server", func() {
 				SetHubServer(hubServer).
 				SetHubClientFactory(newFakeHubClientFactory(fakeK8s)).
 				SetTxManager(&mockTxManager{}).
+				SetScheme(testScheme).
 				Build()
 			Expect(err).NotTo(HaveOccurred())
 		}

@@ -11,24 +11,24 @@ Unless required by applicable law or agreed to in writing, software distributed 
 language governing permissions and limitations under the License.
 */
 
-package gvks
+package scheme
 
-import "k8s.io/apimachinery/pkg/runtime/schema"
+import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
-var HostedCluster = schema.GroupVersionKind{
-	Group:   "hypershift.openshift.io",
-	Version: "v1beta1",
-	Kind:    "HostedCluster",
-}
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
+)
 
-var HostedClusterList = listGVK(HostedCluster)
-
-var Secret = schema.GroupVersionKind{
-	Version: "v1",
-	Kind:    "Secret",
-}
-
-func listGVK(gvk schema.GroupVersionKind) schema.GroupVersionKind {
-	gvk.Kind = gvk.Kind + "List"
-	return gvk
+// NewHub creates a runtime.Scheme with OSAC CRD types and core Kubernetes types
+// registered. Use this for any Kubernetes client that interacts with hub clusters.
+func NewHub() (*runtime.Scheme, error) {
+	s := runtime.NewScheme()
+	if err := osacv1alpha1.AddToScheme(s); err != nil {
+		return nil, err
+	}
+	if err := corev1.AddToScheme(s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }

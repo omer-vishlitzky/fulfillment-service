@@ -39,6 +39,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/auth"
 	"github.com/osac-project/fulfillment-service/internal/console"
 	"github.com/osac-project/fulfillment-service/internal/database"
+	hubscheme "github.com/osac-project/fulfillment-service/internal/kubernetes/scheme"
 	"github.com/osac-project/fulfillment-service/internal/logging"
 	"github.com/osac-project/fulfillment-service/internal/metrics"
 	"github.com/osac-project/fulfillment-service/internal/network"
@@ -428,6 +429,12 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 	}
 	privatev1.RegisterClusterTemplatesServer(grpcServer, privateClusterTemplatesServer)
 
+	// Create the runtime scheme for typed OSAC API objects:
+	hubScheme, err := hubscheme.NewHub()
+	if err != nil {
+		return fmt.Errorf("failed to create hub scheme: %w", err)
+	}
+
 	// Create the clusters server:
 	c.logger.InfoContext(ctx, "Creating clusters server")
 	clustersServer, err := servers.NewClustersServer().
@@ -436,6 +443,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetAttributionLogic(publicAttributionLogic).
 		SetTenancyLogic(tenancyLogic).
 		SetMetricsRegisterer(metricsRegisterer).
+		SetScheme(hubScheme).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create clusters server: %w", err)
@@ -817,6 +825,7 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 		SetComputeInstancesServer(privateComputeInstancesServer).
 		SetHubServer(privateHubsServer).
 		SetTxManager(txManager).
+		SetScheme(hubScheme).
 		Build()
 	if err != nil {
 		return fmt.Errorf("failed to create console server: %w", err)

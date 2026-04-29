@@ -132,6 +132,7 @@ var _ = Describe("Tenancy logic", func() {
 			SetLogger(logger).
 			SetAttributionLogic(attribution).
 			SetTenancyLogic(tenancy).
+			SetScheme(testScheme).
 			Build()
 		Expect(err).ToNot(HaveOccurred())
 
@@ -198,6 +199,7 @@ var _ = Describe("Tenancy logic", func() {
 			SetLogger(logger).
 			SetAttributionLogic(attribution).
 			SetTenancyLogic(tenancy).
+			SetScheme(testScheme).
 			Build()
 		Expect(err).ToNot(HaveOccurred())
 
@@ -256,6 +258,7 @@ var _ = Describe("Tenancy logic", func() {
 			SetLogger(logger).
 			SetAttributionLogic(attribution).
 			SetTenancyLogic(tenancy).
+			SetScheme(testScheme).
 			Build()
 		Expect(err).ToNot(HaveOccurred())
 

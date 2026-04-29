@@ -32,6 +32,7 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/uuid"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 )
 
 var _ = Describe("Public clusters", func() {
@@ -320,9 +321,8 @@ var _ = Describe("Public clusters", func() {
 
 		// Wait till the Kubernetes object has been created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var clusterOrderObj *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var clusterOrderObj *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -382,13 +382,10 @@ var _ = Describe("Public clusters", func() {
 
 		// Save the reference to the hosted cluster in the cluster order:
 		clusterOrderUpdate := clusterOrderObj.DeepCopy()
-		clusterOrderUpdate.Object["status"] = map[string]any{
-			"clusterReference": map[string]any{
-				"namespace":         hostedClusterObj.GetNamespace(),
-				"hostedClusterName": hostedClusterObj.GetName(),
-			},
+		clusterOrderUpdate.Status.ClusterReference = &osacv1alpha1.ClusterOrderClusterReferenceType{
+			Namespace:         hostedClusterObj.GetNamespace(),
+			HostedClusterName: hostedClusterObj.GetName(),
 		}
-		Expect(err).ToNot(HaveOccurred())
 		clusterOrderPatch := crclient.MergeFrom(clusterOrderObj)
 		err = kubeClient.Status().Patch(ctx, clusterOrderUpdate, clusterOrderPatch)
 		Expect(err).ToNot(HaveOccurred())
@@ -432,9 +429,8 @@ var _ = Describe("Public clusters", func() {
 
 		// Wait till the Kubernetes object has been created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var clusterOrderObj *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var clusterOrderObj *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -494,13 +490,10 @@ var _ = Describe("Public clusters", func() {
 
 		// Save the reference to the hosted cluster in the cluster order:
 		clusterOrderUpdate := clusterOrderObj.DeepCopy()
-		clusterOrderUpdate.Object["status"] = map[string]any{
-			"clusterReference": map[string]any{
-				"namespace":         hostedClusterObj.GetNamespace(),
-				"hostedClusterName": hostedClusterObj.GetName(),
-			},
+		clusterOrderUpdate.Status.ClusterReference = &osacv1alpha1.ClusterOrderClusterReferenceType{
+			Namespace:         hostedClusterObj.GetNamespace(),
+			HostedClusterName: hostedClusterObj.GetName(),
 		}
-		Expect(err).ToNot(HaveOccurred())
 		clusterOrderPatch := crclient.MergeFrom(clusterOrderObj)
 		err = kubeClient.Status().Patch(ctx, clusterOrderUpdate, clusterOrderPatch)
 		Expect(err).ToNot(HaveOccurred())
@@ -543,9 +536,8 @@ var _ = Describe("Public clusters", func() {
 
 		// Wait till the Kubernetes object has been created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var clusterOrderObj *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var clusterOrderObj *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -605,13 +597,10 @@ var _ = Describe("Public clusters", func() {
 
 		// Save the reference to the hosted cluster in the cluster order:
 		clusterOrderUpdate := clusterOrderObj.DeepCopy()
-		clusterOrderUpdate.Object["status"] = map[string]any{
-			"clusterReference": map[string]any{
-				"namespace":         hostedClusterObj.GetNamespace(),
-				"hostedClusterName": hostedClusterObj.GetName(),
-			},
+		clusterOrderUpdate.Status.ClusterReference = &osacv1alpha1.ClusterOrderClusterReferenceType{
+			Namespace:         hostedClusterObj.GetNamespace(),
+			HostedClusterName: hostedClusterObj.GetName(),
 		}
-		Expect(err).ToNot(HaveOccurred())
 		clusterOrderPatch := crclient.MergeFrom(clusterOrderObj)
 		err = kubeClient.Status().Patch(ctx, clusterOrderUpdate, clusterOrderPatch)
 		Expect(err).ToNot(HaveOccurred())
@@ -652,9 +641,8 @@ var _ = Describe("Public clusters", func() {
 
 		// Wait till the Kubernetes object has been created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var clusterOrderObj *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var clusterOrderObj *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -714,13 +702,10 @@ var _ = Describe("Public clusters", func() {
 
 		// Save the reference to the hosted cluster in the cluster order:
 		clusterOrderUpdate := clusterOrderObj.DeepCopy()
-		clusterOrderUpdate.Object["status"] = map[string]any{
-			"clusterReference": map[string]any{
-				"namespace":         hostedClusterObj.GetNamespace(),
-				"hostedClusterName": hostedClusterObj.GetName(),
-			},
+		clusterOrderUpdate.Status.ClusterReference = &osacv1alpha1.ClusterOrderClusterReferenceType{
+			Namespace:         hostedClusterObj.GetNamespace(),
+			HostedClusterName: hostedClusterObj.GetName(),
 		}
-		Expect(err).ToNot(HaveOccurred())
 		clusterOrderPatch := crclient.MergeFrom(clusterOrderObj)
 		err = kubeClient.Status().Patch(ctx, clusterOrderUpdate, clusterOrderPatch)
 		Expect(err).ToNot(HaveOccurred())

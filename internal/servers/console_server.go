@@ -22,29 +22,33 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
 	"github.com/osac-project/fulfillment-service/internal/console"
 	"github.com/osac-project/fulfillment-service/internal/database"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 )
 
 // HubClientFactory creates a Kubernetes client from raw kubeconfig bytes.
 type HubClientFactory func(kubeconfig []byte) (clnt.Client, error)
 
-// DefaultHubClientFactory creates a real Kubernetes client from kubeconfig bytes.
-func DefaultHubClientFactory(kubeconfig []byte) (clnt.Client, error) {
-	config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse kubeconfig: %w", err)
+// NewDefaultHubClientFactory creates a HubClientFactory that uses the given scheme
+// to create real Kubernetes clients from kubeconfig bytes.
+func NewDefaultHubClientFactory(scheme *runtime.Scheme) HubClientFactory {
+	return func(kubeconfig []byte) (clnt.Client, error) {
+		config, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse kubeconfig: %w", err)
+		}
+		return clnt.New(config, clnt.Options{Scheme: scheme})
 	}
-	return clnt.New(config, clnt.Options{})
 }
 
 // ConsoleServerBuilder builds a ConsoleServer.
@@ -55,6 +59,7 @@ type ConsoleServerBuilder struct {
 	hubServer        privatev1.HubsServer
 	txManager        database.TxManager
 	hubClientFactory HubClientFactory
+	scheme           *runtime.Scheme
 }
 
 // consoleServer implements the Console gRPC service.
@@ -103,6 +108,11 @@ func (b *ConsoleServerBuilder) SetTxManager(value database.TxManager) *ConsoleSe
 	return b
 }
 
+func (b *ConsoleServerBuilder) SetScheme(value *runtime.Scheme) *ConsoleServerBuilder {
+	b.scheme = value
+	return b
+}
+
 func (b *ConsoleServerBuilder) Build() (publicv1.ConsoleServer, error) {
 	if b.logger == nil {
 		return nil, errors.New("logger is mandatory")
@@ -119,9 +129,12 @@ func (b *ConsoleServerBuilder) Build() (publicv1.ConsoleServer, error) {
 	if b.txManager == nil {
 		return nil, errors.New("transaction manager is mandatory")
 	}
+	if b.scheme == nil {
+		return nil, errors.New("scheme is mandatory")
+	}
 	hubClientFactory := b.hubClientFactory
 	if hubClientFactory == nil {
-		hubClientFactory = DefaultHubClientFactory
+		hubClientFactory = NewDefaultHubClientFactory(b.scheme)
 	}
 	return &consoleServer{
 		logger:           b.logger,
@@ -391,8 +404,7 @@ func (s *consoleServer) getVMReferenceFromHub(ctx context.Context, hubID, instan
 	}
 
 	// Query for the ComputeInstance CR by UUID label.
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.ComputeInstanceList)
+	list := &osacv1alpha1.ComputeInstanceList{}
 	err = hubClient.List(
 		ctx, list,
 		clnt.InNamespace(hub.GetNamespace()),
@@ -423,8 +435,8 @@ func (s *consoleServer) getVMReferenceFromHub(ctx context.Context, hubID, instan
 
 	// Extract virtualMachineReference from the CR status.
 	obj := items[0]
-	statusMap, ok, _ := unstructured.NestedMap(obj.Object, "status", "virtualMachineReference")
-	if !ok || statusMap == nil {
+	vmRef := obj.Status.VirtualMachineReference
+	if vmRef == nil {
 		s.logger.WarnContext(ctx, "Running compute instance has no VM reference on hub",
 			slog.String("instance_id", instanceID),
 			slog.String("hub_id", hubID),
@@ -435,8 +447,8 @@ func (s *consoleServer) getVMReferenceFromHub(ctx context.Context, hubID, instan
 		return
 	}
 
-	namespace, _ = statusMap["namespace"].(string)
-	vmName, _ = statusMap["kubeVirtVirtualMachineName"].(string)
+	namespace = vmRef.Namespace
+	vmName = vmRef.KubeVirtVirtualMachineName
 	if namespace == "" || vmName == "" {
 		err = status.Errorf(codes.FailedPrecondition,
 			"compute instance %q has incomplete VM reference on hub (namespace=%q, vmName=%q)",

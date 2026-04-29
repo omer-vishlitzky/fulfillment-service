@@ -27,8 +27,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/clientcmd"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
@@ -46,6 +49,7 @@ type ClustersServerBuilder struct {
 	attributionLogic  auth.AttributionLogic
 	tenancyLogic      auth.TenancyLogic
 	metricsRegisterer prometheus.Registerer
+	scheme            *runtime.Scheme
 }
 
 var _ publicv1.ClustersServer = (*ClustersServer)(nil)
@@ -62,6 +66,7 @@ type ClustersServer struct {
 	hubsDao         *dao.GenericDAO[*privatev1.Hub]
 	kubeClients     map[string]clnt.Client
 	kubeClientsLock *sync.Mutex
+	scheme          *runtime.Scheme
 }
 
 func NewClustersServer() *ClustersServerBuilder {
@@ -99,6 +104,13 @@ func (b *ClustersServerBuilder) SetMetricsRegisterer(value prometheus.Registerer
 	return b
 }
 
+// SetScheme sets the Kubernetes runtime scheme used for typed API objects.
+// This is mandatory.
+func (b *ClustersServerBuilder) SetScheme(value *runtime.Scheme) *ClustersServerBuilder {
+	b.scheme = value
+	return b
+}
+
 func (b *ClustersServerBuilder) Build() (result *ClustersServer, err error) {
 	// Check parameters:
 	if b.logger == nil {
@@ -107,6 +119,10 @@ func (b *ClustersServerBuilder) Build() (result *ClustersServer, err error) {
 	}
 	if b.tenancyLogic == nil {
 		err = errors.New("tenancy logic is mandatory")
+		return
+	}
+	if b.scheme == nil {
+		err = errors.New("scheme is mandatory")
 		return
 	}
 
@@ -179,6 +195,7 @@ func (b *ClustersServerBuilder) Build() (result *ClustersServer, err error) {
 		private:         delegate,
 		inMapper:        inMapper,
 		outMapper:       outMapper,
+		scheme:          b.scheme,
 	}
 	return
 }
@@ -626,16 +643,14 @@ func (s *ClustersServer) getHostedClusterSecret(ctx context.Context, clusterId s
 	}
 
 	// Extract the location of the hosted cluster:
-	hcKey := clnt.ObjectKey{}
-	err = s.jqTool.Evaluate(
-		`.status.clusterReference | {
-			Namespace: .namespace,
-			Name: .hostedClusterName
-		}`,
-		order.Object, &hcKey,
-	)
-	if err != nil {
+	clusterRef := order.Status.ClusterReference
+	if clusterRef == nil {
+		err = fmt.Errorf("cluster order for '%s' has no cluster reference", cluster.GetId())
 		return
+	}
+	hcKey := clnt.ObjectKey{
+		Namespace: clusterRef.Namespace,
+		Name:      clusterRef.HostedClusterName,
 	}
 
 	// Get the hosted cluster from the hub:
@@ -678,14 +693,13 @@ func (s *ClustersServer) createKubeClient(ctx context.Context, hub *privatev1.Hu
 	if err != nil {
 		return
 	}
-	result, err = clnt.New(config, clnt.Options{})
+	result, err = clnt.New(config, clnt.Options{Scheme: s.scheme})
 	return
 }
 
 func (s *ClustersServer) getKubeClusterOrder(ctx context.Context, client clnt.Client,
-	namespace string, id string) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.ClusterOrderList)
+	namespace string, id string) (result *osacv1alpha1.ClusterOrder, err error) {
+	list := &osacv1alpha1.ClusterOrderList{}
 	err = client.List(
 		ctx, list,
 		clnt.InNamespace(namespace),

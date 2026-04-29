@@ -24,14 +24,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 	kubeerrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/uuid"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 )
 
 var _ = Describe("Cluster reconciler", func() {
@@ -132,9 +131,8 @@ var _ = Describe("Cluster reconciler", func() {
 
 		// Check that the Kubernetes object is eventually created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var kubeObject *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var kubeObject *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -152,19 +150,12 @@ var _ = Describe("Cluster reconciler", func() {
 		Expect(kubeObject.GetNamespace()).To(Equal(hubNamespace))
 
 		// Verify that the node sets from the template are reflected in the Kubernetes object:
-		nodeRequests, ok, err := unstructured.NestedSlice(kubeObject.Object, "spec", "nodeRequests")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(ok).To(BeTrue())
-		Expect(nodeRequests).To(HaveLen(1))
-		nodeRequest := nodeRequests[0].(map[string]any)
-		Expect(nodeRequest["resourceClass"]).To(Equal(hostTypeId))
-		Expect(nodeRequest["numberOfNodes"]).To(BeNumerically("==", 3))
+		Expect(kubeObject.Spec.NodeRequests).To(HaveLen(1))
+		Expect(kubeObject.Spec.NodeRequests[0].ResourceClass).To(Equal(hostTypeId))
+		Expect(kubeObject.Spec.NodeRequests[0].NumberOfNodes).To(BeNumerically("==", 3))
 
 		// Verify that the template parameters are reflected in the Kubernetes object:
-		templateParameters, ok, err := unstructured.NestedString(kubeObject.Object, "spec", "templateParameters")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(ok).To(BeTrue())
-		Expect(templateParameters).To(MatchJSON(`{
+		Expect(kubeObject.Spec.TemplateParameters).To(MatchJSON(`{
 			"my": "my_value",
 			"your": "your_default"
 		}`))
@@ -187,9 +178,8 @@ var _ = Describe("Cluster reconciler", func() {
 
 		// Wait for the corresponding Kubernetes object to be created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var clusterOrderObj *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var clusterOrderObj *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -257,9 +247,8 @@ var _ = Describe("Cluster reconciler", func() {
 
 		// Wait for the corresponding Kubernetes object to be created:
 		kubeClient := tool.KubeClient()
-		clusterOrderList := &unstructured.UnstructuredList{}
-		clusterOrderList.SetGroupVersionKind(gvks.ClusterOrderList)
-		var clusterOrderObj *unstructured.Unstructured
+		clusterOrderList := &osacv1alpha1.ClusterOrderList{}
+		var clusterOrderObj *osacv1alpha1.ClusterOrder
 		Eventually(
 			func(g Gomega) {
 				err := kubeClient.List(ctx, clusterOrderList, crclient.MatchingLabels{
@@ -274,13 +263,9 @@ var _ = Describe("Cluster reconciler", func() {
 		).Should(Succeed())
 
 		// Verify the initial node set size in the Kubernetes object:
-		nodeRequests, found, err := unstructured.NestedSlice(clusterOrderObj.Object, "spec", "nodeRequests")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(nodeRequests).To(HaveLen(1))
-		nodeRequest := nodeRequests[0].(map[string]any)
-		Expect(nodeRequest["resourceClass"]).To(Equal(hostTypeId))
-		Expect(nodeRequest["numberOfNodes"]).To(BeNumerically("==", 3))
+		Expect(clusterOrderObj.Spec.NodeRequests).To(HaveLen(1))
+		Expect(clusterOrderObj.Spec.NodeRequests[0].ResourceClass).To(Equal(hostTypeId))
+		Expect(clusterOrderObj.Spec.NodeRequests[0].NumberOfNodes).To(BeNumerically("==", 3))
 
 		// Update the cluster to change the node set size
 		_, err = clustersClient.Update(ctx, publicv1.ClustersUpdateRequest_builder{
@@ -311,13 +296,9 @@ var _ = Describe("Cluster reconciler", func() {
 			func(g Gomega) {
 				err := kubeClient.Get(ctx, clusterOrderKey, clusterOrderObj)
 				g.Expect(err).ToNot(HaveOccurred())
-				nodeRequests, found, err := unstructured.NestedSlice(clusterOrderObj.Object, "spec", "nodeRequests")
-				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-				g.Expect(nodeRequests).To(HaveLen(1))
-				nodeRequest := nodeRequests[0].(map[string]any)
-				g.Expect(nodeRequest["resourceClass"]).To(Equal(hostTypeId))
-				g.Expect(nodeRequest["numberOfNodes"]).To(BeNumerically("==", 5))
+				g.Expect(clusterOrderObj.Spec.NodeRequests).To(HaveLen(1))
+				g.Expect(clusterOrderObj.Spec.NodeRequests[0].ResourceClass).To(Equal(hostTypeId))
+				g.Expect(clusterOrderObj.Spec.NodeRequests[0].NumberOfNodes).To(BeNumerically("==", 5))
 			},
 			time.Minute,
 			time.Second,

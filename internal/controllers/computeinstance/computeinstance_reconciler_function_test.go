@@ -736,7 +736,7 @@ var _ = Describe("ensureUserDataSecret", func() {
 		Expect(ownerRefs).To(HaveLen(1))
 		Expect(ownerRefs[0].Name).To(Equal(crName))
 		Expect(ownerRefs[0].UID).To(Equal(owner.GetUID()))
-		Expect(ownerRefs[0].Kind).To(Equal(gvks.ComputeInstance.Kind))
+		Expect(ownerRefs[0].Kind).To(Equal("ComputeInstance"))
 	})
 
 	It("should be idempotent when Secret already exists", func() {

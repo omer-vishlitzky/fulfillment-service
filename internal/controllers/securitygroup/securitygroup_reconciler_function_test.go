@@ -55,25 +55,19 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec["virtualNetwork"]).To(Equal("vnet-123"))
+		Expect(spec.VirtualNetwork).To(Equal("vnet-123"))
 
-		ingressRules, ok := spec["ingressRules"].([]any)
-		Expect(ok).To(BeTrue())
-		Expect(ingressRules).To(HaveLen(1))
-		rule0 := ingressRules[0].(map[string]any)
-		Expect(rule0["protocol"]).To(Equal("tcp"))
-		Expect(rule0["portFrom"]).To(Equal(int64(80)))
-		Expect(rule0["portTo"]).To(Equal(int64(443)))
-		Expect(rule0["sourceCidr"]).To(Equal("10.0.0.0/8"))
+		Expect(spec.IngressRules).To(HaveLen(1))
+		Expect(string(spec.IngressRules[0].Protocol)).To(Equal("tcp"))
+		Expect(*spec.IngressRules[0].PortFrom).To(Equal(int32(80)))
+		Expect(*spec.IngressRules[0].PortTo).To(Equal(int32(443)))
+		Expect(spec.IngressRules[0].SourceCIDR).To(Equal("10.0.0.0/8"))
 
-		egressRules, ok := spec["egressRules"].([]any)
-		Expect(ok).To(BeTrue())
-		Expect(egressRules).To(HaveLen(1))
-		rule1 := egressRules[0].(map[string]any)
-		Expect(rule1["protocol"]).To(Equal("all"))
-		Expect(rule1["destinationCidr"]).To(Equal("2001:db8::/32"))
-		Expect(rule1).ToNot(HaveKey("portFrom"))
-		Expect(rule1).ToNot(HaveKey("portTo"))
+		Expect(spec.EgressRules).To(HaveLen(1))
+		Expect(string(spec.EgressRules[0].Protocol)).To(Equal("all"))
+		Expect(spec.EgressRules[0].DestinationCIDR).To(Equal("2001:db8::/32"))
+		Expect(spec.EgressRules[0].PortFrom).To(BeNil())
+		Expect(spec.EgressRules[0].PortTo).To(BeNil())
 	})
 
 	It("Omits empty rule lists", func() {
@@ -88,9 +82,9 @@ var _ = Describe("buildSpec", func() {
 
 		spec := t.buildSpec()
 
-		Expect(spec["virtualNetwork"]).To(Equal("vnet-456"))
-		Expect(spec).ToNot(HaveKey("ingressRules"))
-		Expect(spec).ToNot(HaveKey("egressRules"))
+		Expect(spec.VirtualNetwork).To(Equal("vnet-456"))
+		Expect(spec.IngressRules).To(BeEmpty())
+		Expect(spec.EgressRules).To(BeEmpty())
 	})
 })
 

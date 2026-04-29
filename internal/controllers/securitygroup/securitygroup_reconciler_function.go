@@ -23,14 +23,15 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
 )
@@ -194,23 +195,22 @@ func (t *task) update(ctx context.Context) error {
 
 	// Create or update the Kubernetes object:
 	if object == nil {
-		object := &unstructured.Unstructured{}
-		object.SetGroupVersionKind(gvks.SecurityGroup)
-		object.SetNamespace(t.hubNamespace)
-		object.SetGenerateName(objectPrefix)
-		object.SetLabels(map[string]string{
-			labels.SecurityGroupUuid: t.securityGroup.GetId(),
-		})
 		sgAnnotations := map[string]string{
 			annotations.Tenant: t.securityGroup.GetMetadata().GetTenants()[0],
 		}
 		if implStrategy != "" {
 			sgAnnotations[implementationStrategyAnnotation] = implStrategy
 		}
-		object.SetAnnotations(sgAnnotations)
-		err = unstructured.SetNestedField(object.Object, spec, "spec")
-		if err != nil {
-			return err
+		object := &osacv1alpha1.SecurityGroup{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:    t.hubNamespace,
+				GenerateName: objectPrefix,
+				Labels: map[string]string{
+					labels.SecurityGroupUuid: t.securityGroup.GetId(),
+				},
+				Annotations: sgAnnotations,
+			},
+			Spec: spec,
 		}
 		err = t.hubClient.Create(ctx, object)
 		if err != nil {
@@ -224,10 +224,7 @@ func (t *task) update(ctx context.Context) error {
 		)
 	} else {
 		update := object.DeepCopy()
-		err = unstructured.SetNestedField(update.Object, spec, "spec")
-		if err != nil {
-			return err
-		}
+		update.Spec = spec
 		err = t.hubClient.Patch(ctx, update, clnt.MergeFrom(object))
 		if err != nil {
 			return err
@@ -287,9 +284,8 @@ func (t *task) getImplementationStrategy(ctx context.Context, parentVN *privatev
 	return parentVN.GetSpec().GetImplementationStrategy()
 }
 
-func (t *task) getParentVNKubeObject(ctx context.Context, vnID string) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.VirtualNetworkList)
+func (t *task) getParentVNKubeObject(ctx context.Context, vnID string) (result *osacv1alpha1.VirtualNetwork, err error) {
+	list := &osacv1alpha1.VirtualNetworkList{}
 	err = t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -378,9 +374,8 @@ func (t *task) delete(ctx context.Context) (err error) {
 	return
 }
 
-func (t *task) getKubeObject(ctx context.Context) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.SecurityGroupList)
+func (t *task) getKubeObject(ctx context.Context) (result *osacv1alpha1.SecurityGroup, err error) {
+	list := &osacv1alpha1.SecurityGroupList{}
 	err = t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -434,49 +429,51 @@ func (t *task) removeFinalizer() {
 	}
 }
 
-// buildSpec constructs the spec map for the Kubernetes SecurityGroup object based on the
+// buildSpec constructs the spec for the Kubernetes SecurityGroup object based on the
 // security group from the database.
-func (t *task) buildSpec() map[string]any {
-	spec := map[string]any{
-		"virtualNetwork": t.securityGroup.GetSpec().GetVirtualNetwork(),
+func (t *task) buildSpec() osacv1alpha1.SecurityGroupSpec {
+	spec := osacv1alpha1.SecurityGroupSpec{
+		VirtualNetwork: t.securityGroup.GetSpec().GetVirtualNetwork(),
 	}
 
 	// Add ingress rules if present:
 	ingressRules := t.securityGroup.GetSpec().GetIngress()
 	if len(ingressRules) > 0 {
-		spec["ingressRules"] = convertRules(ingressRules)
+		spec.IngressRules = convertRules(ingressRules)
 	}
 
 	// Add egress rules if present:
 	egressRules := t.securityGroup.GetSpec().GetEgress()
 	if len(egressRules) > 0 {
-		spec["egressRules"] = convertRules(egressRules)
+		spec.EgressRules = convertRules(egressRules)
 	}
 
 	return spec
 }
 
-// convertRules converts a slice of proto SecurityRule messages to a slice of maps suitable for
-// unstructured Kubernetes objects.
-func convertRules(rules []*privatev1.SecurityRule) []any {
-	result := make([]any, 0, len(rules))
+// convertRules converts a slice of proto SecurityRule messages to a slice of typed
+// SecurityRule structs for the Kubernetes SecurityGroup object.
+func convertRules(rules []*privatev1.SecurityRule) []osacv1alpha1.SecurityRule {
+	result := make([]osacv1alpha1.SecurityRule, 0, len(rules))
 	for _, rule := range rules {
-		ruleMap := map[string]any{
-			"protocol": protocolToString(rule.GetProtocol()),
+		r := osacv1alpha1.SecurityRule{
+			Protocol: osacv1alpha1.SecurityGroupProtocol(protocolToString(rule.GetProtocol())),
 		}
 		if rule.HasPortFrom() {
-			ruleMap["portFrom"] = int64(rule.GetPortFrom())
+			portFrom := int32(rule.GetPortFrom())
+			r.PortFrom = &portFrom
 		}
 		if rule.HasPortTo() {
-			ruleMap["portTo"] = int64(rule.GetPortTo())
+			portTo := int32(rule.GetPortTo())
+			r.PortTo = &portTo
 		}
 		if rule.HasIpv4Cidr() {
-			ruleMap["sourceCidr"] = rule.GetIpv4Cidr()
+			r.SourceCIDR = rule.GetIpv4Cidr()
 		}
 		if rule.HasIpv6Cidr() {
-			ruleMap["destinationCidr"] = rule.GetIpv6Cidr()
+			r.DestinationCIDR = rule.GetIpv6Cidr()
 		}
-		result = append(result, ruleMap)
+		result = append(result, r)
 	}
 	return result
 }

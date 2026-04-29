@@ -19,17 +19,16 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 )
 
 var _ = Describe("validateTenant", func() {
@@ -111,14 +110,7 @@ var _ = Describe("update tenant annotation", func() {
 
 	It("should set tenant annotation when creating a new ClusterOrder CR", func() {
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{
-				Group:   gvks.ClusterOrder.Group,
-				Version: gvks.ClusterOrder.Version,
-				Kind:    gvks.ClusterOrder.Kind + "List",
-			},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -160,8 +152,7 @@ var _ = Describe("update tenant annotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Verify the ClusterOrder CR was created with the tenant annotation
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gvks.ClusterOrderList)
+		list := &osacv1alpha1.ClusterOrderList{}
 		err = fakeClient.List(ctx, list)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(list.Items).To(HaveLen(1))
@@ -173,41 +164,30 @@ var _ = Describe("update tenant annotation", func() {
 
 	It("should update ClusterOrder when node set size changes on a ready cluster", func() {
 		// Create an existing ClusterOrder with size 3:
-		existingOrder := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": gvks.ClusterOrder.Group + "/" + gvks.ClusterOrder.Version,
-				"kind":       gvks.ClusterOrder.Kind,
-				"metadata": map[string]any{
-					"name":      "order-abc",
-					"namespace": hubNamespace,
-					"labels": map[string]any{
-						labels.ClusterOrderUuid: clusterID,
-					},
-					"annotations": map[string]any{
-						annotations.Tenant: tenantName,
-					},
+		existingOrder := &osacv1alpha1.ClusterOrder{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "order-abc",
+				Namespace: hubNamespace,
+				Labels: map[string]string{
+					labels.ClusterOrderUuid: clusterID,
 				},
-				"spec": map[string]any{
-					"templateID": "test-template",
-					"nodeRequests": []any{
-						map[string]any{
-							"resourceClass": "gpu.gb200",
-							"numberOfNodes": int64(3),
-						},
+				Annotations: map[string]string{
+					annotations.Tenant: tenantName,
+				},
+			},
+			Spec: osacv1alpha1.ClusterOrderSpec{
+				TemplateID: "test-template",
+				NodeRequests: []osacv1alpha1.NodeRequest{
+					{
+						ResourceClass: "gpu.gb200",
+						NumberOfNodes: 3,
 					},
 				},
 			},
 		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{
-				Group:   gvks.ClusterOrder.Group,
-				Version: gvks.ClusterOrder.Version,
-				Kind:    gvks.ClusterOrder.Kind + "List",
-			},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -257,59 +237,43 @@ var _ = Describe("update tenant annotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Verify the ClusterOrder was patched with the new size:
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gvks.ClusterOrderList)
+		list := &osacv1alpha1.ClusterOrderList{}
 		err = fakeClient.List(ctx, list)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(list.Items).To(HaveLen(1))
 
 		updatedCR := list.Items[0]
-		nodeRequests, found, err := unstructured.NestedSlice(updatedCR.Object, "spec", "nodeRequests")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(nodeRequests).To(HaveLen(1))
-		nodeRequest := nodeRequests[0].(map[string]any)
-		Expect(nodeRequest["resourceClass"]).To(Equal("gpu.gb200"))
-		Expect(nodeRequest["numberOfNodes"]).To(BeNumerically("==", 5))
+		Expect(updatedCR.Spec.NodeRequests).To(HaveLen(1))
+		Expect(updatedCR.Spec.NodeRequests[0].ResourceClass).To(Equal("gpu.gb200"))
+		Expect(updatedCR.Spec.NodeRequests[0].NumberOfNodes).To(Equal(5))
 	})
 
 	It("should update ClusterOrder when node set size changes on a progressing cluster", func() {
 		// Create an existing ClusterOrder with size 3:
-		existingOrder := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": gvks.ClusterOrder.Group + "/" + gvks.ClusterOrder.Version,
-				"kind":       gvks.ClusterOrder.Kind,
-				"metadata": map[string]any{
-					"name":      "order-abc",
-					"namespace": hubNamespace,
-					"labels": map[string]any{
-						labels.ClusterOrderUuid: clusterID,
-					},
-					"annotations": map[string]any{
-						annotations.Tenant: tenantName,
-					},
+		existingOrder := &osacv1alpha1.ClusterOrder{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "order-abc",
+				Namespace: hubNamespace,
+				Labels: map[string]string{
+					labels.ClusterOrderUuid: clusterID,
 				},
-				"spec": map[string]any{
-					"templateID": "test-template",
-					"nodeRequests": []any{
-						map[string]any{
-							"resourceClass": "gpu.gb200",
-							"numberOfNodes": int64(3),
-						},
+				Annotations: map[string]string{
+					annotations.Tenant: tenantName,
+				},
+			},
+			Spec: osacv1alpha1.ClusterOrderSpec{
+				TemplateID: "test-template",
+				NodeRequests: []osacv1alpha1.NodeRequest{
+					{
+						ResourceClass: "gpu.gb200",
+						NumberOfNodes: 3,
 					},
 				},
 			},
 		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{
-				Group:   gvks.ClusterOrder.Group,
-				Version: gvks.ClusterOrder.Version,
-				Kind:    gvks.ClusterOrder.Kind + "List",
-			},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -359,59 +323,43 @@ var _ = Describe("update tenant annotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Verify the ClusterOrder was patched with the new size:
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gvks.ClusterOrderList)
+		list := &osacv1alpha1.ClusterOrderList{}
 		err = fakeClient.List(ctx, list)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(list.Items).To(HaveLen(1))
 
 		updatedCR := list.Items[0]
-		nodeRequests, found, err := unstructured.NestedSlice(updatedCR.Object, "spec", "nodeRequests")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(nodeRequests).To(HaveLen(1))
-		nodeRequest := nodeRequests[0].(map[string]any)
-		Expect(nodeRequest["resourceClass"]).To(Equal("gpu.gb200"))
-		Expect(nodeRequest["numberOfNodes"]).To(BeNumerically("==", 5))
+		Expect(updatedCR.Spec.NodeRequests).To(HaveLen(1))
+		Expect(updatedCR.Spec.NodeRequests[0].ResourceClass).To(Equal("gpu.gb200"))
+		Expect(updatedCR.Spec.NodeRequests[0].NumberOfNodes).To(Equal(5))
 	})
 
 	It("should not update ClusterOrder when cluster is in failed state", func() {
 		// Create an existing ClusterOrder with size 3:
-		existingOrder := &unstructured.Unstructured{
-			Object: map[string]any{
-				"apiVersion": gvks.ClusterOrder.Group + "/" + gvks.ClusterOrder.Version,
-				"kind":       gvks.ClusterOrder.Kind,
-				"metadata": map[string]any{
-					"name":      "order-abc",
-					"namespace": hubNamespace,
-					"labels": map[string]any{
-						labels.ClusterOrderUuid: clusterID,
-					},
-					"annotations": map[string]any{
-						annotations.Tenant: tenantName,
-					},
+		existingOrder := &osacv1alpha1.ClusterOrder{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "order-abc",
+				Namespace: hubNamespace,
+				Labels: map[string]string{
+					labels.ClusterOrderUuid: clusterID,
 				},
-				"spec": map[string]any{
-					"templateID": "test-template",
-					"nodeRequests": []any{
-						map[string]any{
-							"resourceClass": "gpu.gb200",
-							"numberOfNodes": int64(3),
-						},
+				Annotations: map[string]string{
+					annotations.Tenant: tenantName,
+				},
+			},
+			Spec: osacv1alpha1.ClusterOrderSpec{
+				TemplateID: "test-template",
+				NodeRequests: []osacv1alpha1.NodeRequest{
+					{
+						ResourceClass: "gpu.gb200",
+						NumberOfNodes: 3,
 					},
 				},
 			},
 		}
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{
-				Group:   gvks.ClusterOrder.Group,
-				Version: gvks.ClusterOrder.Version,
-				Kind:    gvks.ClusterOrder.Kind + "List",
-			},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -455,31 +403,19 @@ var _ = Describe("update tenant annotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Verify the ClusterOrder was NOT patched — size should still be 3:
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gvks.ClusterOrderList)
+		list := &osacv1alpha1.ClusterOrderList{}
 		err = fakeClient.List(ctx, list)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(list.Items).To(HaveLen(1))
 
 		unchangedCR := list.Items[0]
-		nodeRequests, found, err := unstructured.NestedSlice(unchangedCR.Object, "spec", "nodeRequests")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(nodeRequests).To(HaveLen(1))
-		nodeRequest := nodeRequests[0].(map[string]any)
-		Expect(nodeRequest["numberOfNodes"]).To(BeNumerically("==", 3))
+		Expect(unchangedCR.Spec.NodeRequests).To(HaveLen(1))
+		Expect(unchangedCR.Spec.NodeRequests[0].NumberOfNodes).To(Equal(3))
 	})
 
 	It("should map explicit cluster fields to ClusterOrder CR spec", func() {
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{
-				Group:   gvks.ClusterOrder.Group,
-				Version: gvks.ClusterOrder.Version,
-				Kind:    gvks.ClusterOrder.Kind + "List",
-			},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -534,22 +470,17 @@ var _ = Describe("update tenant annotation", func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		// Verify the ClusterOrder CR spec contains the explicit fields
-		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(gvks.ClusterOrderList)
+		list := &osacv1alpha1.ClusterOrderList{}
 		err = fakeClient.List(ctx, list)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(list.Items).To(HaveLen(1))
 
-		spec, found, err := unstructured.NestedMap(list.Items[0].Object, "spec")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(found).To(BeTrue())
-		Expect(spec["pullSecret"]).To(Equal(pullSecret))
-		Expect(spec["sshPublicKey"]).To(Equal(sshKey))
-		Expect(spec["releaseImage"]).To(Equal(releaseImage))
-
-		network, ok := spec["network"].(map[string]any)
-		Expect(ok).To(BeTrue())
-		Expect(network["podCIDR"]).To(Equal(podCIDR))
-		Expect(network["serviceCIDR"]).To(Equal(serviceCIDR))
+		createdCR := list.Items[0]
+		Expect(createdCR.Spec.PullSecret).To(Equal(pullSecret))
+		Expect(createdCR.Spec.SSHPublicKey).To(Equal(sshKey))
+		Expect(createdCR.Spec.ReleaseImage).To(Equal(releaseImage))
+		Expect(createdCR.Spec.Network).ToNot(BeNil())
+		Expect(createdCR.Spec.Network.PodCIDR).To(Equal(podCIDR))
+		Expect(createdCR.Spec.Network.ServiceCIDR).To(Equal(serviceCIDR))
 	})
 })

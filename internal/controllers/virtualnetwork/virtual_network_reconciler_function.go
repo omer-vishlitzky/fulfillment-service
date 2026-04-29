@@ -23,14 +23,15 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
 )
@@ -171,19 +172,18 @@ func (t *task) update(ctx context.Context) error {
 
 	// Create or update the Kubernetes object:
 	if object == nil {
-		object := &unstructured.Unstructured{}
-		object.SetGroupVersionKind(gvks.VirtualNetwork)
-		object.SetNamespace(t.hubNamespace)
-		object.SetGenerateName(objectPrefix)
-		object.SetLabels(map[string]string{
-			labels.VirtualNetworkUuid: t.virtualNetwork.GetId(),
-		})
-		object.SetAnnotations(map[string]string{
-			annotations.Tenant: t.virtualNetwork.GetMetadata().GetTenants()[0],
-		})
-		err = unstructured.SetNestedField(object.Object, spec, "spec")
-		if err != nil {
-			return err
+		object := &osacv1alpha1.VirtualNetwork{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:    t.hubNamespace,
+				GenerateName: objectPrefix,
+				Labels: map[string]string{
+					labels.VirtualNetworkUuid: t.virtualNetwork.GetId(),
+				},
+				Annotations: map[string]string{
+					annotations.Tenant: t.virtualNetwork.GetMetadata().GetTenants()[0],
+				},
+			},
+			Spec: spec,
 		}
 		err = t.hubClient.Create(ctx, object)
 		if err != nil {
@@ -197,10 +197,7 @@ func (t *task) update(ctx context.Context) error {
 		)
 	} else {
 		update := object.DeepCopy()
-		err = unstructured.SetNestedField(update.Object, spec, "spec")
-		if err != nil {
-			return err
-		}
+		update.Spec = spec
 		err = t.hubClient.Patch(ctx, update, clnt.MergeFrom(object))
 		if err != nil {
 			return err
@@ -326,9 +323,8 @@ func (t *task) getHub(ctx context.Context) error {
 	return nil
 }
 
-func (t *task) getKubeObject(ctx context.Context) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.VirtualNetworkList)
+func (t *task) getKubeObject(ctx context.Context) (result *osacv1alpha1.VirtualNetwork, err error) {
+	list := &osacv1alpha1.VirtualNetworkList{}
 	err = t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -382,33 +378,23 @@ func (t *task) removeFinalizer() {
 	}
 }
 
-// buildSpec constructs the spec map for the Kubernetes VirtualNetwork object based on the
+// buildSpec constructs the spec for the Kubernetes VirtualNetwork object based on the
 // virtual network from the database.
-func (t *task) buildSpec() map[string]any {
-	spec := map[string]any{
-		"region":                 t.virtualNetwork.GetSpec().GetRegion(),
-		"networkClass":           t.virtualNetwork.GetSpec().GetNetworkClass(),
-		"implementationStrategy": t.virtualNetwork.GetSpec().GetImplementationStrategy(),
+func (t *task) buildSpec() osacv1alpha1.VirtualNetworkSpec {
+	spec := osacv1alpha1.VirtualNetworkSpec{
+		Region:                 t.virtualNetwork.GetSpec().GetRegion(),
+		NetworkClass:           t.virtualNetwork.GetSpec().GetNetworkClass(),
+		ImplementationStrategy: t.virtualNetwork.GetSpec().GetImplementationStrategy(),
 	}
 
 	// Add IPv4 CIDR if present:
 	if t.virtualNetwork.GetSpec().HasIpv4Cidr() {
-		spec["ipv4Cidr"] = t.virtualNetwork.GetSpec().GetIpv4Cidr()
+		spec.IPv4CIDR = t.virtualNetwork.GetSpec().GetIpv4Cidr()
 	}
 
 	// Add IPv6 CIDR if present:
 	if t.virtualNetwork.GetSpec().HasIpv6Cidr() {
-		spec["ipv6Cidr"] = t.virtualNetwork.GetSpec().GetIpv6Cidr()
-	}
-
-	// Add capabilities if present:
-	if t.virtualNetwork.GetSpec().HasCapabilities() {
-		caps := t.virtualNetwork.GetSpec().GetCapabilities()
-		spec["capabilities"] = map[string]any{
-			"enableIpv4":      caps.GetEnableIpv4(),
-			"enableIpv6":      caps.GetEnableIpv6(),
-			"enableDualStack": caps.GetEnableDualStack(),
-		}
+		spec.IPv6CIDR = t.virtualNetwork.GetSpec().GetIpv6Cidr()
 	}
 
 	return spec

@@ -20,11 +20,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -32,7 +31,6 @@ import (
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 )
 
@@ -55,9 +53,9 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["virtualNetwork"]).To(Equal(vnetID))
-		Expect(spec["ipv4Cidr"]).To(Equal(ipv4))
-		Expect(spec["ipv6Cidr"]).To(Equal(ipv6))
+		Expect(spec.VirtualNetwork).To(Equal(vnetID))
+		Expect(spec.IPv4CIDR).To(Equal(ipv4))
+		Expect(spec.IPv6CIDR).To(Equal(ipv6))
 	})
 
 	It("Includes only IPv4 when IPv6 is not present", func() {
@@ -76,9 +74,9 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["virtualNetwork"]).To(Equal(vnetID))
-		Expect(spec["ipv4Cidr"]).To(Equal(ipv4))
-		Expect(spec).ToNot(HaveKey("ipv6Cidr"))
+		Expect(spec.VirtualNetwork).To(Equal(vnetID))
+		Expect(spec.IPv4CIDR).To(Equal(ipv4))
+		Expect(spec.IPv6CIDR).To(BeEmpty())
 	})
 
 	It("Includes only IPv6 when IPv4 is not present", func() {
@@ -97,21 +95,23 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["virtualNetwork"]).To(Equal(vnetID))
-		Expect(spec).ToNot(HaveKey("ipv4Cidr"))
-		Expect(spec["ipv6Cidr"]).To(Equal(ipv6))
+		Expect(spec.VirtualNetwork).To(Equal(vnetID))
+		Expect(spec.IPv4CIDR).To(BeEmpty())
+		Expect(spec.IPv6CIDR).To(Equal(ipv6))
 	})
 })
 
-// newSubnetCR creates an unstructured Subnet CR for use with the fake client.
-func newSubnetCR(id, namespace, name string, deletionTimestamp *metav1.Time) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvks.Subnet)
-	obj.SetNamespace(namespace)
-	obj.SetName(name)
-	obj.SetLabels(map[string]string{
-		labels.SubnetUuid: id,
-	})
+// newSubnetCR creates a typed Subnet CR for use with the fake client.
+func newSubnetCR(id, namespace, name string, deletionTimestamp *metav1.Time) *osacv1alpha1.Subnet {
+	obj := &osacv1alpha1.Subnet{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			Labels: map[string]string{
+				labels.SubnetUuid: id,
+			},
+		},
+	}
 	if deletionTimestamp != nil {
 		obj.SetDeletionTimestamp(deletionTimestamp)
 		obj.SetFinalizers([]string{"osac.openshift.io/subnet"})
@@ -168,6 +168,7 @@ var _ = Describe("delete", func() {
 
 	It("should remove finalizer when K8s object doesn't exist", func() {
 		scheme := runtime.NewScheme()
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 		fakeClient := fake.NewClientBuilder().
 			WithScheme(scheme).
 			Build()
@@ -192,10 +193,7 @@ var _ = Describe("delete", func() {
 		cr := newSubnetCR(subnetID, hubNamespace, crName, nil)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().
@@ -231,10 +229,7 @@ var _ = Describe("delete", func() {
 		cr := newSubnetCR(subnetID, hubNamespace, crName, &now)
 
 		scheme := runtime.NewScheme()
-		scheme.AddKnownTypeWithName(
-			schema.GroupVersionKind{Group: gvks.Subnet.Group, Version: gvks.Subnet.Version, Kind: gvks.Subnet.Kind + "List"},
-			&unstructured.UnstructuredList{},
-		)
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 
 		deleteCalled := false
 		fakeClient := fake.NewClientBuilder().

@@ -20,11 +20,10 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 	"go.uber.org/mock/gomock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -32,7 +31,6 @@ import (
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 )
 
@@ -64,14 +62,11 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["region"]).To(Equal(region))
-		Expect(spec["networkClass"]).To(Equal(networkClass))
-		Expect(spec["implementationStrategy"]).To(Equal(implementationStrategy))
-		Expect(spec["ipv4Cidr"]).To(Equal(ipv4))
-		Expect(spec["ipv6Cidr"]).To(Equal(ipv6))
-		Expect(spec["capabilities"]).To(HaveKeyWithValue("enableIpv4", true))
-		Expect(spec["capabilities"]).To(HaveKeyWithValue("enableIpv6", true))
-		Expect(spec["capabilities"]).To(HaveKeyWithValue("enableDualStack", true))
+		Expect(spec.Region).To(Equal(region))
+		Expect(spec.NetworkClass).To(Equal(networkClass))
+		Expect(spec.ImplementationStrategy).To(Equal(implementationStrategy))
+		Expect(spec.IPv4CIDR).To(Equal(ipv4))
+		Expect(spec.IPv6CIDR).To(Equal(ipv6))
 	})
 
 	It("Includes only IPv4 when IPv6 is not present", func() {
@@ -97,12 +92,11 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["region"]).To(Equal(region))
-		Expect(spec["networkClass"]).To(Equal(networkClass))
-		Expect(spec["implementationStrategy"]).To(Equal(implementationStrategy))
-		Expect(spec["ipv4Cidr"]).To(Equal(ipv4))
-		Expect(spec).ToNot(HaveKey("ipv6Cidr"))
-		Expect(spec["capabilities"]).To(HaveKeyWithValue("enableIpv4", true))
+		Expect(spec.Region).To(Equal(region))
+		Expect(spec.NetworkClass).To(Equal(networkClass))
+		Expect(spec.ImplementationStrategy).To(Equal(implementationStrategy))
+		Expect(spec.IPv4CIDR).To(Equal(ipv4))
+		Expect(spec.IPv6CIDR).To(BeEmpty())
 	})
 
 	It("Includes only IPv6 when IPv4 is not present", func() {
@@ -128,12 +122,11 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["region"]).To(Equal(region))
-		Expect(spec["networkClass"]).To(Equal(networkClass))
-		Expect(spec["implementationStrategy"]).To(Equal(implementationStrategy))
-		Expect(spec).ToNot(HaveKey("ipv4Cidr"))
-		Expect(spec["ipv6Cidr"]).To(Equal(ipv6))
-		Expect(spec["capabilities"]).To(HaveKeyWithValue("enableIpv6", true))
+		Expect(spec.Region).To(Equal(region))
+		Expect(spec.NetworkClass).To(Equal(networkClass))
+		Expect(spec.ImplementationStrategy).To(Equal(implementationStrategy))
+		Expect(spec.IPv4CIDR).To(BeEmpty())
+		Expect(spec.IPv6CIDR).To(Equal(ipv6))
 	})
 
 	It("Handles missing capabilities field", func() {
@@ -156,23 +149,24 @@ var _ = Describe("buildSpec", func() {
 
 		spec := task.buildSpec()
 
-		Expect(spec["region"]).To(Equal(region))
-		Expect(spec["networkClass"]).To(Equal(networkClass))
-		Expect(spec["implementationStrategy"]).To(Equal(implementationStrategy))
-		Expect(spec["ipv4Cidr"]).To(Equal(ipv4))
-		Expect(spec).ToNot(HaveKey("capabilities"))
+		Expect(spec.Region).To(Equal(region))
+		Expect(spec.NetworkClass).To(Equal(networkClass))
+		Expect(spec.ImplementationStrategy).To(Equal(implementationStrategy))
+		Expect(spec.IPv4CIDR).To(Equal(ipv4))
 	})
 })
 
-// newVirtualNetworkCR creates an unstructured VirtualNetwork CR for use with the fake client.
-func newVirtualNetworkCR(id, namespace, name string, deletionTimestamp *metav1.Time) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(gvks.VirtualNetwork)
-	obj.SetNamespace(namespace)
-	obj.SetName(name)
-	obj.SetLabels(map[string]string{
-		labels.VirtualNetworkUuid: id,
-	})
+// newVirtualNetworkCR creates a typed VirtualNetwork CR for use with the fake client.
+func newVirtualNetworkCR(id, namespace, name string, deletionTimestamp *metav1.Time) *osacv1alpha1.VirtualNetwork {
+	obj := &osacv1alpha1.VirtualNetwork{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			Labels: map[string]string{
+				labels.VirtualNetworkUuid: id,
+			},
+		},
+	}
 	if deletionTimestamp != nil {
 		obj.SetDeletionTimestamp(deletionTimestamp)
 		obj.SetFinalizers([]string{"osac.openshift.io/virtualnetwork"})
@@ -230,13 +224,7 @@ var _ = Describe("delete", func() {
 		namespace = "test-namespace"
 
 		scheme = runtime.NewScheme()
-		gvkList := schema.GroupVersionKind{
-			Group:   gvks.VirtualNetwork.Group,
-			Version: gvks.VirtualNetwork.Version,
-			Kind:    gvks.VirtualNetworkList.Kind,
-		}
-		scheme.AddKnownTypeWithName(gvks.VirtualNetwork, &unstructured.Unstructured{})
-		scheme.AddKnownTypeWithName(gvkList, &unstructured.UnstructuredList{})
+		Expect(osacv1alpha1.AddToScheme(scheme)).To(Succeed())
 	})
 
 	AfterEach(func() {

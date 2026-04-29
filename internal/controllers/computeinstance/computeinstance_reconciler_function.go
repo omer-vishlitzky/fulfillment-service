@@ -20,20 +20,20 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"slices"
-	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
 	"github.com/osac-project/fulfillment-service/internal/utils"
@@ -193,19 +193,18 @@ func (t *task) update(ctx context.Context) error {
 
 	// Create or update the Kubernetes object:
 	if object == nil {
-		object = &unstructured.Unstructured{}
-		object.SetGroupVersionKind(gvks.ComputeInstance)
-		object.SetNamespace(t.hubNamespace)
-		object.SetGenerateName(objectPrefix)
-		object.SetLabels(map[string]string{
-			labels.ComputeInstanceUuid: t.computeInstance.GetId(),
-		})
-		object.SetAnnotations(map[string]string{
-			annotations.Tenant: t.computeInstance.GetMetadata().GetTenants()[0],
-		})
-		err = unstructured.SetNestedField(object.Object, spec, "spec")
-		if err != nil {
-			return err
+		object = &osacv1alpha1.ComputeInstance{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:    t.hubNamespace,
+				GenerateName: objectPrefix,
+				Labels: map[string]string{
+					labels.ComputeInstanceUuid: t.computeInstance.GetId(),
+				},
+				Annotations: map[string]string{
+					annotations.Tenant: t.computeInstance.GetMetadata().GetTenants()[0],
+				},
+			},
+			Spec: spec,
 		}
 		err = t.hubClient.Create(ctx, object)
 		if err != nil {
@@ -219,10 +218,7 @@ func (t *task) update(ctx context.Context) error {
 		)
 	} else {
 		update := object.DeepCopy()
-		err = unstructured.SetNestedField(update.Object, spec, "spec")
-		if err != nil {
-			return err
-		}
+		update.Spec = spec
 		err = t.hubClient.Patch(ctx, update, clnt.MergeFrom(object))
 		if err != nil {
 			return err
@@ -371,9 +367,8 @@ func (t *task) getHub(ctx context.Context) error {
 	return nil
 }
 
-func (t *task) getKubeObject(ctx context.Context) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.ComputeInstanceList)
+func (t *task) getKubeObject(ctx context.Context) (result *osacv1alpha1.ComputeInstance, err error) {
+	list := &osacv1alpha1.ComputeInstanceList{}
 	err = t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -401,9 +396,8 @@ func (t *task) getKubeObject(ctx context.Context) (result *unstructured.Unstruct
 
 // getSubnetCR looks up a Subnet CR in the hub cluster by its fulfillment UUID label.
 // Returns the Subnet CR if exactly one is found, nil if none found, or an error if multiple found.
-func (t *task) getSubnetCR(ctx context.Context, subnetID string) (*unstructured.Unstructured, error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.SubnetList)
+func (t *task) getSubnetCR(ctx context.Context, subnetID string) (*osacv1alpha1.Subnet, error) {
+	list := &osacv1alpha1.SubnetList{}
 	err := t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -484,25 +478,26 @@ func (t *task) updateCondition(conditionType privatev1.ComputeInstanceConditionT
 	t.computeInstance.GetStatus().SetConditions(conditions)
 }
 
-// buildSpec constructs the spec map for the Kubernetes ComputeInstance object based on the
+// buildSpec constructs the spec for the Kubernetes ComputeInstance object based on the
 // compute instance from the database.
-func (t *task) buildSpec(ctx context.Context) (map[string]any, error) {
+func (t *task) buildSpec(ctx context.Context) (osacv1alpha1.ComputeInstanceSpec, error) {
 	templateParameters, err := utils.ConvertTemplateParametersToJSON(t.computeInstance.GetSpec().GetTemplateParameters())
 	if err != nil {
-		return nil, err
+		return osacv1alpha1.ComputeInstanceSpec{}, err
 	}
-	spec := map[string]any{
-		"templateID":         t.computeInstance.GetSpec().GetTemplate(),
-		"templateParameters": templateParameters,
+	spec := osacv1alpha1.ComputeInstanceSpec{
+		TemplateID:         t.computeInstance.GetSpec().GetTemplate(),
+		TemplateParameters: templateParameters,
 	}
 
 	// Add restartRequestedAt if present:
 	if t.computeInstance.GetSpec().HasRestartRequestedAt() {
-		spec["restartRequestedAt"] = t.computeInstance.GetSpec().GetRestartRequestedAt().AsTime().Format(time.RFC3339)
+		restartTime := metav1.NewTime(t.computeInstance.GetSpec().GetRestartRequestedAt().AsTime())
+		spec.RestartRequestedAt = &restartTime
 	}
 
 	// Add explicit spec fields if present:
-	t.addExplicitFields(spec)
+	t.addExplicitFields(&spec)
 
 	// Add subnet reference if subnet is specified
 	if t.computeInstance.GetSpec().HasSubnet() {
@@ -517,7 +512,7 @@ func (t *task) buildSpec(ctx context.Context) (map[string]any, error) {
 			)
 			// Don't set subnetRef if lookup fails
 		} else if subnetCR != nil {
-			spec["subnetRef"] = subnetCR.GetName()
+			spec.SubnetRef = subnetCR.GetName()
 			t.r.logger.DebugContext(
 				ctx,
 				"Set subnetRef from Subnet CR",
@@ -536,45 +531,45 @@ func (t *task) buildSpec(ctx context.Context) (map[string]any, error) {
 	return spec, nil
 }
 
-func (t *task) addExplicitFields(spec map[string]any) {
+func (t *task) addExplicitFields(spec *osacv1alpha1.ComputeInstanceSpec) {
 	ciSpec := t.computeInstance.GetSpec()
 
 	if ciSpec.HasCores() {
-		spec["cores"] = int64(ciSpec.GetCores())
+		spec.Cores = ciSpec.GetCores()
 	}
 	if ciSpec.HasMemoryGib() {
-		spec["memoryGiB"] = int64(ciSpec.GetMemoryGib())
+		spec.MemoryGiB = ciSpec.GetMemoryGib()
 	}
 	if ciSpec.HasRunStrategy() {
-		spec["runStrategy"] = ciSpec.GetRunStrategy()
+		spec.RunStrategy = osacv1alpha1.RunStrategyType(ciSpec.GetRunStrategy())
 	}
 	if ciSpec.HasSshKey() {
-		spec["sshKey"] = ciSpec.GetSshKey()
+		spec.SSHKey = ciSpec.GetSshKey()
 	}
 	if t.userDataSecretName != "" {
-		spec["userDataSecretRef"] = map[string]any{
-			"name": t.userDataSecretName,
+		spec.UserDataSecretRef = &corev1.LocalObjectReference{
+			Name: t.userDataSecretName,
 		}
 	}
 	if ciSpec.HasImage() {
-		spec["image"] = map[string]any{
-			"sourceType": ciSpec.GetImage().GetSourceType(),
-			"sourceRef":  ciSpec.GetImage().GetSourceRef(),
+		spec.Image = osacv1alpha1.ImageSpec{
+			SourceType: osacv1alpha1.ImageSourceType(ciSpec.GetImage().GetSourceType()),
+			SourceRef:  ciSpec.GetImage().GetSourceRef(),
 		}
 	}
 	if ciSpec.HasBootDisk() {
-		spec["bootDisk"] = map[string]any{
-			"sizeGiB": int64(ciSpec.GetBootDisk().GetSizeGib()),
+		spec.BootDisk = osacv1alpha1.DiskSpec{
+			SizeGiB: ciSpec.GetBootDisk().GetSizeGib(),
 		}
 	}
 	if len(ciSpec.GetAdditionalDisks()) > 0 {
-		disks := make([]any, 0, len(ciSpec.GetAdditionalDisks()))
+		disks := make([]osacv1alpha1.DiskSpec, 0, len(ciSpec.GetAdditionalDisks()))
 		for _, disk := range ciSpec.GetAdditionalDisks() {
-			disks = append(disks, map[string]any{
-				"sizeGiB": int64(disk.GetSizeGib()),
+			disks = append(disks, osacv1alpha1.DiskSpec{
+				SizeGiB: disk.GetSizeGib(),
 			})
 		}
-		spec["additionalDisks"] = disks
+		spec.AdditionalDisks = disks
 	}
 }
 
@@ -582,30 +577,30 @@ func (t *task) addExplicitFields(spec map[string]any) {
 // provided via the fulfillment API. The Secret is owned by the ComputeInstance CR so that
 // Kubernetes garbage collection handles cleanup automatically on deletion.
 // The user data field is immutable, so the Secret is only created once.
-func (t *task) ensureUserDataSecret(ctx context.Context, owner *unstructured.Unstructured) error {
+func (t *task) ensureUserDataSecret(ctx context.Context, owner *osacv1alpha1.ComputeInstance) error {
 	if t.userDataSecretName == "" {
 		return nil
 	}
 
-	secret := &unstructured.Unstructured{}
-	secret.SetGroupVersionKind(gvks.Secret)
-	secret.SetNamespace(t.hubNamespace)
-	secret.SetName(t.userDataSecretName)
-	secret.SetLabels(map[string]string{
-		labels.ComputeInstanceUuid: t.computeInstance.GetId(),
-	})
-	secret.SetOwnerReferences([]metav1.OwnerReference{
-		{
-			APIVersion: gvks.ComputeInstance.GroupVersion().String(),
-			Kind:       gvks.ComputeInstance.Kind,
-			Name:       owner.GetName(),
-			UID:        owner.GetUID(),
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: t.hubNamespace,
+			Name:      t.userDataSecretName,
+			Labels: map[string]string{
+				labels.ComputeInstanceUuid: t.computeInstance.GetId(),
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: osacv1alpha1.GroupVersion.String(),
+					Kind:       "ComputeInstance",
+					Name:       owner.GetName(),
+					UID:        owner.GetUID(),
+				},
+			},
 		},
-	})
-	if err := unstructured.SetNestedField(secret.Object, map[string]any{
-		userDataSecretKey: t.computeInstance.GetSpec().GetUserData(),
-	}, "stringData"); err != nil {
-		return err
+		StringData: map[string]string{
+			userDataSecretKey: t.computeInstance.GetSpec().GetUserData(),
+		},
 	}
 
 	err := t.hubClient.Create(ctx, secret)

@@ -22,14 +22,15 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clnt "sigs.k8s.io/controller-runtime/pkg/client"
+
+	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/controllers"
 	"github.com/osac-project/fulfillment-service/internal/controllers/finalizers"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/annotations"
-	"github.com/osac-project/fulfillment-service/internal/kubernetes/gvks"
 	"github.com/osac-project/fulfillment-service/internal/kubernetes/labels"
 	"github.com/osac-project/fulfillment-service/internal/masks"
 )
@@ -173,36 +174,32 @@ func (t *task) update(ctx context.Context) error {
 
 	// Create or update the Kubernetes object:
 	if object == nil {
-		object := &unstructured.Unstructured{}
-		object.SetGroupVersionKind(gvks.PublicIP)
-		object.SetNamespace(t.hubNamespace)
-		object.SetGenerateName(objectPrefix)
-		object.SetLabels(map[string]string{
-			labels.PublicIPUuid: t.publicIP.GetId(),
-		})
-		object.SetAnnotations(map[string]string{
-			annotations.Tenant: t.publicIP.GetMetadata().GetTenants()[0],
-		})
-		err = unstructured.SetNestedField(object.Object, spec, "spec")
-		if err != nil {
-			return err
+		newObject := &osacv1alpha1.PublicIP{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace:    t.hubNamespace,
+				GenerateName: objectPrefix,
+				Labels: map[string]string{
+					labels.PublicIPUuid: t.publicIP.GetId(),
+				},
+				Annotations: map[string]string{
+					annotations.Tenant: t.publicIP.GetMetadata().GetTenants()[0],
+				},
+			},
+			Spec: spec,
 		}
-		err = t.hubClient.Create(ctx, object)
+		err = t.hubClient.Create(ctx, newObject)
 		if err != nil {
 			return err
 		}
 		t.r.logger.DebugContext(
 			ctx,
 			"Created public IP",
-			slog.String("namespace", object.GetNamespace()),
-			slog.String("name", object.GetName()),
+			slog.String("namespace", newObject.GetNamespace()),
+			slog.String("name", newObject.GetName()),
 		)
 	} else {
 		update := object.DeepCopy()
-		err = unstructured.SetNestedField(update.Object, spec, "spec")
-		if err != nil {
-			return err
-		}
+		update.Spec = spec
 		err = t.hubClient.Patch(ctx, update, clnt.MergeFrom(object))
 		if err != nil {
 			return err
@@ -336,9 +333,8 @@ func (t *task) getHub(ctx context.Context) error {
 	return nil
 }
 
-func (t *task) getKubeObject(ctx context.Context) (result *unstructured.Unstructured, err error) {
-	list := &unstructured.UnstructuredList{}
-	list.SetGroupVersionKind(gvks.PublicIPList)
+func (t *task) getKubeObject(ctx context.Context) (result *osacv1alpha1.PublicIP, err error) {
+	list := &osacv1alpha1.PublicIPList{}
 	err = t.hubClient.List(
 		ctx, list,
 		clnt.InNamespace(t.hubNamespace),
@@ -395,12 +391,12 @@ func (t *task) removeFinalizer() {
 // buildSpec constructs the spec map for the Kubernetes PublicIP object based on the
 // public IP from the database. Only spec fields are pushed to the CRD; status fields
 // (address, state) originate from the operator side and flow K8s -> fulfillment-service.
-func (t *task) buildSpec() map[string]any {
-	spec := map[string]any{
-		"pool": t.publicIP.GetSpec().GetPool(),
+func (t *task) buildSpec() osacv1alpha1.PublicIPSpec {
+	spec := osacv1alpha1.PublicIPSpec{
+		Pool: t.publicIP.GetSpec().GetPool(),
 	}
 	if t.publicIP.GetSpec().HasComputeInstance() {
-		spec["computeInstance"] = t.publicIP.GetSpec().GetComputeInstance()
+		spec.ComputeInstance = t.publicIP.GetSpec().GetComputeInstance()
 	}
 	return spec
 }

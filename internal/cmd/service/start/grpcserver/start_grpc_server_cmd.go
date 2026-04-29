@@ -674,6 +674,62 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 	}
 	privatev1.RegisterNetworkClassesServer(grpcServer, privateNetworkClassesServer)
 
+	// Create the roles server:
+	c.logger.InfoContext(ctx, "Creating roles server")
+	rolesServer, err := servers.NewRolesServer().
+		SetLogger(c.logger).
+		SetNotifier(notifier).
+		SetAttributionLogic(publicAttributionLogic).
+		SetTenancyLogic(tenancyLogic).
+		SetMetricsRegisterer(metricsRegisterer).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create roles server: %w", err)
+	}
+	publicv1.RegisterRolesServer(grpcServer, rolesServer)
+
+	// Create the private roles server:
+	c.logger.InfoContext(ctx, "Creating private roles server")
+	privateRolesServer, err := servers.NewPrivateRolesServer().
+		SetLogger(c.logger).
+		SetNotifier(notifier).
+		SetAttributionLogic(privateAttributionLogic).
+		SetTenancyLogic(tenancyLogic).
+		SetMetricsRegisterer(metricsRegisterer).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create private roles server: %w", err)
+	}
+	privatev1.RegisterRolesServer(grpcServer, privateRolesServer)
+
+	// Create the role bindings server:
+	c.logger.InfoContext(ctx, "Creating role bindings server")
+	roleBindingsServer, err := servers.NewRoleBindingsServer().
+		SetLogger(c.logger).
+		SetNotifier(notifier).
+		SetAttributionLogic(publicAttributionLogic).
+		SetTenancyLogic(tenancyLogic).
+		SetMetricsRegisterer(metricsRegisterer).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create role bindings server: %w", err)
+	}
+	publicv1.RegisterRoleBindingsServer(grpcServer, roleBindingsServer)
+
+	// Create the private role bindings server:
+	c.logger.InfoContext(ctx, "Creating private role bindings server")
+	privateRoleBindingsServer, err := servers.NewPrivateRoleBindingsServer().
+		SetLogger(c.logger).
+		SetNotifier(notifier).
+		SetAttributionLogic(privateAttributionLogic).
+		SetTenancyLogic(tenancyLogic).
+		SetMetricsRegisterer(metricsRegisterer).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create private role bindings server: %w", err)
+	}
+	privatev1.RegisterRoleBindingsServer(grpcServer, privateRoleBindingsServer)
+
 	// Create the private leases server:
 	c.logger.InfoContext(ctx, "Creating private leases server")
 	privateLeasesServer, err := servers.NewPrivateLeasesServer().

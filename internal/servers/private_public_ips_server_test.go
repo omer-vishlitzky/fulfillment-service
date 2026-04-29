@@ -771,22 +771,10 @@ var _ = Describe("Private public IPs server", func() {
 		})
 
 		It("allows Delete when state is PENDING", func() {
-			// Default state after Create is PENDING/UNSPECIFIED:
-			poolID := createReadyPool(ctx, 100, 0)
-			createResp, err := publicIPsServer.Create(ctx, privatev1.PublicIPsCreateRequest_builder{
-				Object: privatev1.PublicIP_builder{
-					Metadata: privatev1.Metadata_builder{
-						Tenants: []string{"shared"},
-					}.Build(),
-					Spec: privatev1.PublicIPSpec_builder{
-						Pool: poolID,
-					}.Build(),
-				}.Build(),
-			}.Build())
-			Expect(err).ToNot(HaveOccurred())
+			object := createPublicIPWithState(privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING)
 
-			_, err = publicIPsServer.Delete(ctx, privatev1.PublicIPsDeleteRequest_builder{
-				Id: createResp.GetObject().GetId(),
+			_, err := publicIPsServer.Delete(ctx, privatev1.PublicIPsDeleteRequest_builder{
+				Id: object.GetId(),
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 		})

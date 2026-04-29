@@ -127,6 +127,16 @@ var _ = Describe("Clusters server", func() {
 			Expect(err).To(MatchError("tenancy logic is mandatory"))
 			Expect(server).To(BeNil())
 		})
+
+		It("Fails if scheme is not set", func() {
+			server, err := NewClustersServer().
+				SetLogger(logger).
+				SetAttributionLogic(attribution).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).To(MatchError("scheme is mandatory"))
+			Expect(server).To(BeNil())
+		})
 	})
 
 	Describe("Behaviour", func() {

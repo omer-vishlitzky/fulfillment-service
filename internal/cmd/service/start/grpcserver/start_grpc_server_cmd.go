@@ -31,18 +31,15 @@ import (
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
-
-	osacv1alpha1 "github.com/osac-project/osac-operator/api/v1alpha1"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	publicv1 "github.com/osac-project/fulfillment-service/internal/api/osac/public/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
 	"github.com/osac-project/fulfillment-service/internal/console"
 	"github.com/osac-project/fulfillment-service/internal/database"
+	hubscheme "github.com/osac-project/fulfillment-service/internal/kubernetes/scheme"
 	"github.com/osac-project/fulfillment-service/internal/logging"
 	"github.com/osac-project/fulfillment-service/internal/metrics"
 	"github.com/osac-project/fulfillment-service/internal/network"
@@ -433,12 +430,9 @@ func (c *runnerContext) run(cmd *cobra.Command, argv []string) error {
 	privatev1.RegisterClusterTemplatesServer(grpcServer, privateClusterTemplatesServer)
 
 	// Create the runtime scheme for typed OSAC API objects:
-	hubScheme := runtime.NewScheme()
-	if err = osacv1alpha1.AddToScheme(hubScheme); err != nil {
-		return fmt.Errorf("failed to add OSAC scheme: %w", err)
-	}
-	if err = corev1.AddToScheme(hubScheme); err != nil {
-		return fmt.Errorf("failed to add core scheme: %w", err)
+	hubScheme, err := hubscheme.NewHub()
+	if err != nil {
+		return fmt.Errorf("failed to create hub scheme: %w", err)
 	}
 
 	// Create the clusters server:

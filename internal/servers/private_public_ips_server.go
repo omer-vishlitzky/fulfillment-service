@@ -353,8 +353,14 @@ func (s *PrivatePublicIPsServer) updatePoolCapacity(ctx context.Context, poolID 
 	}
 
 	pool := poolResponse.GetObject()
-	pool.GetStatus().SetAllocated(pool.GetStatus().GetAllocated() + delta)
-	pool.GetStatus().SetAvailable(pool.GetStatus().GetAvailable() - delta)
+	newAllocated := pool.GetStatus().GetAllocated() + delta
+	newAvailable := pool.GetStatus().GetAvailable() - delta
+	if newAllocated < 0 || newAvailable < 0 {
+		return grpcstatus.Errorf(grpccodes.FailedPrecondition,
+			"pool '%s' has no available capacity", poolID)
+	}
+	pool.GetStatus().SetAllocated(newAllocated)
+	pool.GetStatus().SetAvailable(newAvailable)
 
 	_, err = s.publicIPPoolDao.Update().
 		SetObject(pool).
@@ -363,7 +369,11 @@ func (s *PrivatePublicIPsServer) updatePoolCapacity(ctx context.Context, poolID 
 		s.logger.ErrorContext(ctx, "Failed to update pool capacity",
 			slog.String("pool_id", poolID),
 			slog.Any("error", err))
-		return grpcstatus.Errorf(grpccodes.Aborted, "pool capacity update conflict, retry")
+		var conflictErr *dao.ErrConflict
+		if errors.As(err, &conflictErr) {
+			return grpcstatus.Errorf(grpccodes.Aborted, "%s", conflictErr.Error())
+		}
+		return grpcstatus.Errorf(grpccodes.Internal, "failed to update pool capacity")
 	}
 
 	return nil

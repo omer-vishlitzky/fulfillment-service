@@ -63,6 +63,35 @@ spec:
               {{ end }}
           {{ end }}
           {{ end }}
+      {{- if .Values.idp.enabled }}
+      - name: idp-credentials
+        projected:
+          sources:
+          {{- if .Values.idp.credentials }}
+          {{- range .Values.idp.credentials }}
+          {{- if .configMap }}
+          - configMap:
+              name: {{ .configMap.name }}
+              items:
+              {{- range .configMap.items }}
+              - key: {{ .key }}
+                path: {{ .param }}
+              {{- end }}
+          {{- end }}
+          {{- if .secret }}
+          - secret:
+              name: {{ .secret.name }}
+              items:
+              {{- range .secret.items }}
+              - key: {{ .key }}
+                path: {{ .param }}
+              {{- end }}
+          {{- end }}
+          {{- end }}
+          {{- else }}
+          []
+          {{- end }}
+      {{- end }}
       containers:
       - name: controller
         image: {{ .Values.images.service }}
@@ -74,6 +103,11 @@ spec:
         - name: credentials
           mountPath: /etc/fulfillment-controller/credentials
           readOnly: true
+        {{- if .Values.idp.enabled }}
+        - name: idp-credentials
+          mountPath: /etc/fulfillment-controller/idp
+          readOnly: true
+        {{- end }}
         command:
         {{ if .Values.debug }}
         - dlv
@@ -97,6 +131,12 @@ spec:
         - --auth-issuer-url={{ $authIssuerUrl }}
         - --auth-client-id-file=/etc/fulfillment-controller/credentials/client-id
         - --auth-client-secret-file=/etc/fulfillment-controller/credentials/client-secret
+        {{- if .Values.idp.enabled }}
+        - --idp-provider={{ .Values.idp.provider }}
+        - --idp-url={{ required "idp.url is required when idp.enabled is true" .Values.idp.url }}
+        - --idp-client-id-file=/etc/fulfillment-controller/idp/client-id
+        - --idp-client-secret-file=/etc/fulfillment-controller/idp/client-secret
+        {{- end }}
         - --grpc-server-address=fulfillment-internal-api:8001
         - --grpc-keep-alive=5m
         - --grpc-listener-address=0.0.0.0:8000

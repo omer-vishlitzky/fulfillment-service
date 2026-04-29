@@ -254,8 +254,9 @@ func (s *PrivatePublicIPsServer) Delete(ctx context.Context,
 
 	existingPublicIP := getResponse.GetObject()
 
-	// Reject delete when in ATTACHED state:
-	if existingPublicIP.GetStatus().GetState() == privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED {
+	state := existingPublicIP.GetStatus().GetState()
+	if state == privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED ||
+		state == privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING {
 		err = grpcstatus.Errorf(grpccodes.FailedPrecondition,
 			"cannot delete PublicIP: detach from ComputeInstance first")
 		return

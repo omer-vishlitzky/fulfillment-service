@@ -761,6 +761,19 @@ var _ = Describe("Private public IPs server", func() {
 			Expect(err.Error()).To(ContainSubstring("detach from ComputeInstance first"))
 		})
 
+		It("rejects Delete when state is RELEASING", func() {
+			object := createPublicIPWithState(privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING)
+
+			_, err := publicIPsServer.Delete(ctx, privatev1.PublicIPsDeleteRequest_builder{
+				Id: object.GetId(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("detach from ComputeInstance first"))
+		})
+
 		It("allows Delete when state is ALLOCATED", func() {
 			object := createPublicIPWithState(privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
 

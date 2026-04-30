@@ -188,6 +188,10 @@ spec:
               "/osac.public.v1.PublicIPs/Delete",
               "/osac.public.v1.PublicIPs/Get",
               "/osac.public.v1.PublicIPs/List",
+              "/osac.public.v1.Roles/Get",
+              "/osac.public.v1.Roles/List",
+              "/osac.public.v1.RoleBindings/Get",
+              "/osac.public.v1.RoleBindings/List",
             }
           }
 

@@ -28,6 +28,14 @@ installed separately before deploying the service:
   See the `charts/service/values.yaml` file for the expected format and the
   `charts/keycloak/README.md` file for details on the required Keycloak configuration.
 
+- _IDP Credentials (Optional)_ - If you want to enable organization management via the IDP
+  integration, you must provide OAuth client credentials for authenticating with the identity
+  provider's admin API. For Keycloak, this uses the same `osac-controller` service account that
+  already has the required realm-management roles. You can reuse the same credentials as
+  `auth.controllerCredentials` or create separate credentials for separation of concerns. Configure
+  via the `idp.credentials` value. See the `charts/service/values.yaml` file for the expected
+  format.
+
 Note that the PostgreSQL and Keycloak Helm charts that are included in this project are intended
 only for development environments, and shouldn't be used in production.
 
@@ -134,6 +142,21 @@ $ kubectl create secret generic fulfillment-controller-credentials \
 --from-literal=client-secret=...
 ```
 
+Optional: Enable IDP integration for organization management. You can either reuse the same
+`fulfillment-controller-credentials` secret (simple approach) or create separate IDP credentials
+for separation of concerns:
+
+```shell
+# Option 1: Reuse the same credentials (recommended for simple deployments)
+# No additional secret needed - use the existing fulfillment-controller-credentials
+
+# Option 2: Create separate IDP credentials (for better separation of concerns)
+$ kubectl create secret generic fulfillment-idp-credentials \
+--namespace osac \
+--from-literal=client-id=osac-controller \
+--from-literal=client-secret=...
+```
+
 Deploy the application:
 
 ```shell
@@ -176,6 +199,21 @@ database:
         param: user
       - key: password
         param: password
+
+# Optional: Enable IDP integration for organization management
+idp:
+  enabled: true
+  provider: keycloak
+  url: https://keycloak.keycloak.svc.cluster.local:8000
+  # Reuse the same credentials as controllerCredentials
+  credentials:
+  - secret:
+      name: fulfillment-controller-credentials
+      items:
+      - key: client-id
+        param: client-id
+      - key: client-secret
+        param: client-secret
 ```
 
 ## Kind
@@ -339,6 +377,21 @@ $ kubectl create secret generic fulfillment-controller-credentials \
 --from-literal=client-secret=...
 ```
 
+Optional: Enable IDP integration for organization management. You can either reuse the same
+`fulfillment-controller-credentials` secret (simple approach) or create separate IDP credentials
+for separation of concerns:
+
+```shell
+# Option 1: Reuse the same credentials (recommended for simple deployments)
+# No additional secret needed - use the existing fulfillment-controller-credentials
+
+# Option 2: Create separate IDP credentials (for better separation of concerns)
+$ kubectl create secret generic fulfillment-idp-credentials \
+--namespace osac \
+--from-literal=client-id=osac-controller \
+--from-literal=client-secret=...
+```
+
 Deploy the application:
 
 ```shell
@@ -381,4 +434,19 @@ database:
         param: user
       - key: password
         param: password
+
+# Optional: Enable IDP integration for organization management
+idp:
+  enabled: true
+  provider: keycloak
+  url: https://keycloak.keycloak.svc.cluster.local:8000
+  # Reuse the same credentials as controllerCredentials
+  credentials:
+  - secret:
+      name: fulfillment-controller-credentials
+      items:
+      - key: client-id
+        param: client-id
+      - key: client-secret
+        param: client-secret
 ```

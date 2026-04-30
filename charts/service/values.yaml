@@ -145,3 +145,40 @@ database:
   # The keys of the ConfigMap and secret don't need to match the parameter names. In the above example the URL is in a
   # `uri` key but the connection parameter name is `url`.
   connection: []
+
+# Identity provider configuration (optional). When enabled, the controller will start the organization reconciler
+# to manage organizations in the identity provider.
+idp:
+
+  # Enable IDP integration for organization management. When disabled, the organization controller will not start.
+  # The default is false.
+  enabled: false
+
+  # IDP provider type. Currently only 'keycloak' is supported.
+  provider: keycloak
+
+  # Base URL of the identity provider (e.g., https://keycloak.keycloak.svc.cluster.local:8000)
+  url: ""
+
+  # List of sources for the IDP OAuth client credentials. The controller uses the OAuth client credentials flow to
+  # authenticate with the identity provider's admin API. The credentials must have sufficient privileges to manage
+  # organizations and users (for Keycloak, this means the realm-management client roles: manage-realm, manage-users,
+  # view-realm, view-users).
+  #
+  # The format follows the same pattern as auth.controllerCredentials:
+  #
+  # idp:
+  #   credentials:
+  #   - secret:
+  #       name: fulfillment-controller-credentials
+  #       items:
+  #       - key: client-id
+  #         param: client-id
+  #       - key: client-secret
+  #         param: client-secret
+  #
+  # You can reuse the same credentials as auth.controllerCredentials if the osac-controller service account has both
+  # API access and IDP management permissions, or use a separate secret for separation of concerns.
+  #
+  # The default value is an empty list, meaning no credentials are configured.
+  credentials: []

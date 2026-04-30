@@ -50,13 +50,13 @@ func mergeClusterNetworkDefaults(spec *privatev1.ClusterSpec, defaults *privatev
 		spec.SetNetwork(proto.Clone(defaults.GetNetwork()).(*privatev1.ClusterNetwork))
 		return
 	}
-	net := spec.GetNetwork()
+	specNet := spec.GetNetwork()
 	defNet := defaults.GetNetwork()
-	if !net.HasPodCidr() && defNet.HasPodCidr() {
-		net.SetPodCidr(defNet.GetPodCidr())
+	if !specNet.HasPodCidr() && defNet.HasPodCidr() {
+		specNet.SetPodCidr(defNet.GetPodCidr())
 	}
-	if !net.HasServiceCidr() && defNet.HasServiceCidr() {
-		net.SetServiceCidr(defNet.GetServiceCidr())
+	if !specNet.HasServiceCidr() && defNet.HasServiceCidr() {
+		specNet.SetServiceCidr(defNet.GetServiceCidr())
 	}
 }
 

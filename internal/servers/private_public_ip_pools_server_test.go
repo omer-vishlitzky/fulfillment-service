@@ -301,6 +301,23 @@ var _ = Describe("Private public IP pools server", func() {
 			Expect(err).ToNot(HaveOccurred())
 			poolID := createPoolResponse.GetObject().GetId()
 
+			// Set pool to READY with capacity (required by PublicIP Create validation):
+			_, err = poolsServer.Update(ctx, privatev1.PublicIPPoolsUpdateRequest_builder{
+				Object: privatev1.PublicIPPool_builder{
+					Id: poolID,
+					Status: privatev1.PublicIPPoolStatus_builder{
+						State:     privatev1.PublicIPPoolState_PUBLIC_IP_POOL_STATE_READY,
+						Total:     10,
+						Allocated: 0,
+						Available: 10,
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{
+					Paths: []string{"status"},
+				},
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
 			// Allocate a PublicIP from the pool:
 			_, err = ipsServer.Create(ctx, privatev1.PublicIPsCreateRequest_builder{
 				Object: privatev1.PublicIP_builder{

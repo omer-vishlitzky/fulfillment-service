@@ -30,8 +30,9 @@ import (
 
 var _ = Describe("Public IPs server", func() {
 	var (
-		ctx context.Context
-		tx  database.Tx
+		ctx             context.Context
+		tx              database.Tx
+		publicIPPoolDao *dao.GenericDAO[*privatev1.PublicIPPool]
 	)
 
 	BeforeEach(func() {
@@ -66,7 +67,38 @@ var _ = Describe("Public IPs server", func() {
 		// Create the tables:
 		err = dao.CreateTables[*privatev1.PublicIP](ctx)
 		Expect(err).ToNot(HaveOccurred())
+		err = dao.CreateTables[*privatev1.PublicIPPool](ctx)
+		Expect(err).ToNot(HaveOccurred())
+
+		// Create the PublicIPPool DAO:
+		publicIPPoolDao, err = dao.NewGenericDAO[*privatev1.PublicIPPool]().
+			SetLogger(logger).
+			SetTenancyLogic(tenancy).
+			Build()
+		Expect(err).ToNot(HaveOccurred())
 	})
+
+	// createReadyPool creates a READY pool with available capacity.
+	createReadyPool := func(ctx context.Context) string {
+		resp, err := publicIPPoolDao.Create().SetObject(
+			privatev1.PublicIPPool_builder{
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				Spec: privatev1.PublicIPPoolSpec_builder{
+					Cidrs: []string{"10.0.0.0/24"},
+				}.Build(),
+				Status: privatev1.PublicIPPoolStatus_builder{
+					State:     privatev1.PublicIPPoolState_PUBLIC_IP_POOL_STATE_READY,
+					Total:     254,
+					Allocated: 0,
+					Available: 254,
+				}.Build(),
+			}.Build(),
+		).Do(ctx)
+		Expect(err).ToNot(HaveOccurred())
+		return resp.GetObject().GetId()
+	}
 
 	Describe("Creation", func() {
 		It("Can be built if all the required parameters are set", func() {
@@ -108,10 +140,16 @@ var _ = Describe("Public IPs server", func() {
 	})
 
 	Describe("Behaviour", func() {
-		var publicIPsServer *PublicIPsServer
+		var (
+			publicIPsServer *PublicIPsServer
+			poolID          string
+		)
 
 		BeforeEach(func() {
 			var err error
+
+			// Create a READY pool for all behaviour tests:
+			poolID = createReadyPool(ctx)
 
 			// Create the server:
 			publicIPsServer, err = NewPublicIPsServer().
@@ -126,7 +164,7 @@ var _ = Describe("Public IPs server", func() {
 			response, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 				Object: publicv1.PublicIP_builder{
 					Spec: publicv1.PublicIPSpec_builder{
-						Pool: "my-pool",
+						Pool: poolID,
 					}.Build(),
 				}.Build(),
 			}.Build())
@@ -140,11 +178,11 @@ var _ = Describe("Public IPs server", func() {
 		It("List objects", func() {
 			// Create a few objects:
 			const count = 10
-			for i := range count {
+			for range count {
 				_, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 					Object: publicv1.PublicIP_builder{
 						Spec: publicv1.PublicIPSpec_builder{
-							Pool: fmt.Sprintf("pool-%d", i),
+							Pool: poolID,
 						}.Build(),
 					}.Build(),
 				}.Build())
@@ -162,11 +200,11 @@ var _ = Describe("Public IPs server", func() {
 		It("List objects with limit", func() {
 			// Create a few objects:
 			const count = 10
-			for i := range count {
+			for range count {
 				_, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 					Object: publicv1.PublicIP_builder{
 						Spec: publicv1.PublicIPSpec_builder{
-							Pool: fmt.Sprintf("pool-%d", i),
+							Pool: poolID,
 						}.Build(),
 					}.Build(),
 				}.Build())
@@ -184,11 +222,11 @@ var _ = Describe("Public IPs server", func() {
 		It("List objects with offset", func() {
 			// Create a few objects:
 			const count = 10
-			for i := range count {
+			for range count {
 				_, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 					Object: publicv1.PublicIP_builder{
 						Spec: publicv1.PublicIPSpec_builder{
-							Pool: fmt.Sprintf("pool-%d", i),
+							Pool: poolID,
 						}.Build(),
 					}.Build(),
 				}.Build())
@@ -207,11 +245,11 @@ var _ = Describe("Public IPs server", func() {
 			// Create a few objects:
 			const count = 10
 			var objects []*publicv1.PublicIP
-			for i := range count {
+			for range count {
 				response, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 					Object: publicv1.PublicIP_builder{
 						Spec: publicv1.PublicIPSpec_builder{
-							Pool: fmt.Sprintf("pool-%d", i),
+							Pool: poolID,
 						}.Build(),
 					}.Build(),
 				}.Build())
@@ -235,7 +273,7 @@ var _ = Describe("Public IPs server", func() {
 			createResponse, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 				Object: publicv1.PublicIP_builder{
 					Spec: publicv1.PublicIPSpec_builder{
-						Pool: "my-pool",
+						Pool: poolID,
 					}.Build(),
 				}.Build(),
 			}.Build())
@@ -254,7 +292,7 @@ var _ = Describe("Public IPs server", func() {
 			createResponse, err := publicIPsServer.Create(ctx, publicv1.PublicIPsCreateRequest_builder{
 				Object: publicv1.PublicIP_builder{
 					Spec: publicv1.PublicIPSpec_builder{
-						Pool: "my-pool",
+						Pool: poolID,
 					}.Build(),
 				}.Build(),
 			}.Build())

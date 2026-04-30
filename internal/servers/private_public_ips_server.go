@@ -289,6 +289,31 @@ func (s *PrivatePublicIPsServer) Signal(ctx context.Context,
 	return
 }
 
+// validPublicIPTransitions defines the allowed state transitions for PublicIP resources.
+// Each state maps to the set of states it can transition to.
+var validPublicIPTransitions = map[privatev1.PublicIPState]map[privatev1.PublicIPState]bool{
+	privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING: {
+		privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED: true,
+		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:    true,
+	},
+	privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED: {
+		privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING: true,
+		privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: true,
+		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:    true,
+	},
+	privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING: {
+		privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED: true,
+		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:   true,
+	},
+	privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED: {
+		privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: true,
+		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:    true,
+	},
+	privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: {
+		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED: true,
+	},
+}
+
 // validatePublicIP validates the PublicIP object before creation.
 func (s *PrivatePublicIPsServer) validatePublicIP(ctx context.Context,
 	publicIP *privatev1.PublicIP) error {

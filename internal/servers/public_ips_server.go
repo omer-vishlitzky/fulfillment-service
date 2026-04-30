@@ -254,6 +254,56 @@ func (s *PublicIPsServer) Create(ctx context.Context,
 	return
 }
 
+func (s *PublicIPsServer) Update(ctx context.Context,
+	request *publicv1.PublicIPsUpdateRequest) (response *publicv1.PublicIPsUpdateResponse, err error) {
+	// Map the public IP to private format:
+	publicPublicIP := request.GetObject()
+	if publicPublicIP == nil {
+		err = grpcstatus.Errorf(grpccodes.InvalidArgument, "object is mandatory")
+		return
+	}
+	privatePublicIP := &privatev1.PublicIP{}
+	err = s.inMapper.Copy(ctx, publicPublicIP, privatePublicIP)
+	if err != nil {
+		s.logger.ErrorContext(
+			ctx,
+			"Failed to map public IP to private",
+			slog.Any("error", err),
+		)
+		err = grpcstatus.Errorf(grpccodes.Internal, "failed to process public IP")
+		return
+	}
+
+	// Delegate to the private server:
+	privateRequest := &privatev1.PublicIPsUpdateRequest{}
+	privateRequest.SetObject(privatePublicIP)
+	privateRequest.SetUpdateMask(request.GetUpdateMask())
+	privateRequest.SetLock(request.GetLock())
+	privateResponse, err := s.delegate.Update(ctx, privateRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map the private response back to public format:
+	updatedPrivatePublicIP := privateResponse.GetObject()
+	updatedPublicPublicIP := &publicv1.PublicIP{}
+	err = s.outMapper.Copy(ctx, updatedPrivatePublicIP, updatedPublicPublicIP)
+	if err != nil {
+		s.logger.ErrorContext(
+			ctx,
+			"Failed to map private public IP to public",
+			slog.Any("error", err),
+		)
+		err = grpcstatus.Errorf(grpccodes.Internal, "failed to process public IP")
+		return
+	}
+
+	// Create the public response:
+	response = &publicv1.PublicIPsUpdateResponse{}
+	response.SetObject(updatedPublicPublicIP)
+	return
+}
+
 func (s *PublicIPsServer) Delete(ctx context.Context,
 	request *publicv1.PublicIPsDeleteRequest) (response *publicv1.PublicIPsDeleteResponse, err error) {
 	// Create private request:

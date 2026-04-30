@@ -138,6 +138,10 @@ func (m *OrganizationManager) CreateOrganization(ctx context.Context, config *Or
 	// Defer cleanup on error
 	defer func() {
 		if err != nil {
+			m.logger.ErrorContext(ctx, "Error creating organization",
+				slog.String("organization", config.Name),
+				slog.Any("error", err),
+			)
 			m.rollback(ctx, config.Name, organizationCreated)
 		}
 	}()

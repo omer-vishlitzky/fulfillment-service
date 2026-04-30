@@ -225,7 +225,7 @@ func (s *PrivatePublicIPsServer) Update(ctx context.Context,
 	if updateIncludesField(mask, "status.state") {
 		newState := request.GetObject().GetStatus().GetState()
 		existingState := existingPublicIP.GetStatus().GetState()
-		if newState != privatev1.PublicIPState_PUBLIC_IP_STATE_UNSPECIFIED && newState != existingState {
+		if newState != existingState {
 			if err = validatePublicIPStateTransition(existingState, newState); err != nil {
 				return
 			}
@@ -399,8 +399,7 @@ func validateImmutableFieldsPublicIP(newPublicIP, existingPublicIP *privatev1.Pu
 	newPool := newPublicIP.GetSpec().GetPool()
 	existingPool := existingPublicIP.GetSpec().GetPool()
 
-	// Only check if the request explicitly sets a pool value that differs from the existing one:
-	if newPool != "" && newPool != existingPool {
+	if newPool != existingPool {
 		return grpcstatus.Errorf(grpccodes.InvalidArgument,
 			"field 'spec.pool' is immutable and cannot be changed from '%s' to '%s'",
 			existingPool, newPool)

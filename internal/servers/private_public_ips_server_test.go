@@ -22,6 +22,7 @@ import (
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/database"
@@ -698,14 +699,29 @@ var _ = Describe("Private public IPs server", func() {
 			Expect(err.Error()).To(ContainSubstring("invalid state transition"))
 		})
 
-		It("skips state validation when new state is UNSPECIFIED", func() {
+		It("rejects UNSPECIFIED state on full replacement (nil mask)", func() {
 			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
 
-			// Update without setting state (UNSPECIFIED is the zero value):
-			object.GetMetadata().Name = "updated-name"
 			object.GetStatus().SetState(privatev1.PublicIPState_PUBLIC_IP_STATE_UNSPECIFIED)
+			_, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: object,
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("invalid state transition"))
+		})
+
+		It("skips state validation when UpdateMask excludes status.state", func() {
+			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
+
+			object.GetMetadata().Name = "updated-name"
 			resp, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
 				Object: object,
+				UpdateMask: &fieldmaskpb.FieldMask{
+					Paths: []string{"metadata.name"},
+				},
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.GetObject().GetMetadata().GetName()).To(Equal("updated-name"))

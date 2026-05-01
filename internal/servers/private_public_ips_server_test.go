@@ -70,6 +70,8 @@ var _ = Describe("Private public IPs server", func() {
 		Expect(err).ToNot(HaveOccurred())
 		err = dao.CreateTables[*privatev1.PublicIPPool](ctx)
 		Expect(err).ToNot(HaveOccurred())
+		err = dao.CreateTables[*privatev1.ComputeInstance](ctx)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Create the PublicIPPool DAO for test data setup:
 		publicIPPoolDao, err = dao.NewGenericDAO[*privatev1.PublicIPPool]().
@@ -636,9 +638,17 @@ var _ = Describe("Private public IPs server", func() {
 			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED))
 		})
 
-		It("accepts ALLOCATED to ATTACHED transition", func() {
+		It("accepts ALLOCATED to ATTACHING transition", func() {
 			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING)
 			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
+			updated := transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING)
+			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING))
+		})
+
+		It("accepts ATTACHING to ATTACHED transition", func() {
+			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING)
+			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
+			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING)
 			updated := transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED)
 			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED))
 		})
@@ -646,6 +656,7 @@ var _ = Describe("Private public IPs server", func() {
 		It("accepts ATTACHED to RELEASING transition", func() {
 			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING)
 			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
+			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING)
 			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED)
 			updated := transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING)
 			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING))
@@ -654,6 +665,7 @@ var _ = Describe("Private public IPs server", func() {
 		It("accepts RELEASING to ALLOCATED transition", func() {
 			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING)
 			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
+			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING)
 			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED)
 			object = transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING)
 			updated := transitionTo(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
@@ -673,9 +685,9 @@ var _ = Describe("Private public IPs server", func() {
 			Expect(err.Error()).To(ContainSubstring("invalid state transition"))
 		})
 
-		It("rejects ALLOCATED to RELEASING transition", func() {
+		It("rejects ALLOCATED to ATTACHED transition (must go through ATTACHING)", func() {
 			object := createPublicIPInState(publicIPsServer, privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED)
-			setStateOnObject(object, privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING)
+			setStateOnObject(object, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED)
 			_, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
 				Object: object,
 			}.Build())
@@ -853,6 +865,301 @@ var _ = Describe("Private public IPs server", func() {
 			}.Build())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updateResp.GetObject().GetMetadata().GetName()).To(Equal("updated-name"))
+		})
+	})
+
+	Describe("Attach/detach validation", func() {
+		var (
+			publicIPsServer    *PrivatePublicIPsServer
+			computeInstanceDao *dao.GenericDAO[*privatev1.ComputeInstance]
+			poolID             string
+			runningInstanceID  string
+			stoppedInstanceID  string
+		)
+
+		BeforeEach(func() {
+			var err error
+
+			publicIPsServer, err = NewPrivatePublicIPsServer().
+				SetLogger(logger).
+				SetAttributionLogic(attribution).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			computeInstanceDao, err = dao.NewGenericDAO[*privatev1.ComputeInstance]().
+				SetLogger(logger).
+				SetTenancyLogic(tenancy).
+				Build()
+			Expect(err).ToNot(HaveOccurred())
+
+			poolID = createReadyPool(ctx, 10, 0)
+
+			runningCI := privatev1.ComputeInstance_builder{
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				Status: privatev1.ComputeInstanceStatus_builder{
+					State: privatev1.ComputeInstanceState_COMPUTE_INSTANCE_STATE_RUNNING,
+				}.Build(),
+			}.Build()
+			runningCIResponse, err := computeInstanceDao.Create().SetObject(runningCI).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			runningInstanceID = runningCIResponse.GetObject().GetId()
+
+			stoppedCI := privatev1.ComputeInstance_builder{
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				Status: privatev1.ComputeInstanceStatus_builder{
+					State: privatev1.ComputeInstanceState_COMPUTE_INSTANCE_STATE_STOPPED,
+				}.Build(),
+			}.Build()
+			stoppedCIResponse, err := computeInstanceDao.Create().SetObject(stoppedCI).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			stoppedInstanceID = stoppedCIResponse.GetObject().GetId()
+		})
+
+		createAllocatedPublicIP := func(address string) *privatev1.PublicIP {
+			createResponse, err := publicIPsServer.Create(ctx, privatev1.PublicIPsCreateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Spec: privatev1.PublicIPSpec_builder{
+						Pool: poolID,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			pip := createResponse.GetObject()
+
+			pip.SetStatus(privatev1.PublicIPStatus_builder{
+				State:   privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED,
+				Address: address,
+			}.Build())
+			_, err = publicIPDao.Update().SetObject(pip).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			return pip
+		}
+
+		It("rejects attach when PublicIP not in ALLOCATED state", func() {
+			createResponse, err := publicIPsServer.Create(ctx, privatev1.PublicIPsCreateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Metadata: privatev1.Metadata_builder{
+						Tenants: []string{"shared"},
+					}.Build(),
+					Spec: privatev1.PublicIPSpec_builder{
+						Pool: poolID,
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+			pip := createResponse.GetObject()
+
+			_, err = publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(runningInstanceID),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("ALLOCATED"))
+		})
+
+		It("rejects attach when ComputeInstance does not exist", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			_, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String("nonexistent-id"),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(err.Error()).To(ContainSubstring("does not exist"))
+		})
+
+		It("rejects attach when ComputeInstance is not RUNNING", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			_, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(stoppedInstanceID),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("not in RUNNING state"))
+		})
+
+		It("rejects attach when another PublicIP already attached to same ComputeInstance", func() {
+			pip1 := createAllocatedPublicIP("192.168.1.100")
+
+			_, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip1.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(runningInstanceID),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			pip2 := createAllocatedPublicIP("192.168.1.101")
+
+			_, err = publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip2.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(runningInstanceID),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.AlreadyExists))
+			Expect(err.Error()).To(ContainSubstring("already has a public IP attached"))
+		})
+
+		It("rejects direct compute instance change", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			pip.SetStatus(privatev1.PublicIPStatus_builder{
+				State:   privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED,
+				Address: "192.168.1.100",
+			}.Build())
+			pip.SetSpec(privatev1.PublicIPSpec_builder{
+				Pool:            poolID,
+				ComputeInstance: proto.String(runningInstanceID),
+			}.Build())
+			_, err := publicIPDao.Update().SetObject(pip).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			anotherCI := privatev1.ComputeInstance_builder{
+				Metadata: privatev1.Metadata_builder{
+					Tenants: []string{"shared"},
+				}.Build(),
+				Status: privatev1.ComputeInstanceStatus_builder{
+					State: privatev1.ComputeInstanceState_COMPUTE_INSTANCE_STATE_RUNNING,
+				}.Build(),
+			}.Build()
+			anotherCIResponse, err := computeInstanceDao.Create().SetObject(anotherCI).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(anotherCIResponse.GetObject().GetId()),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("detach first"))
+		})
+
+		It("successful attach transitions to ATTACHING", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			updateResponse, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(runningInstanceID),
+					}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).ToNot(HaveOccurred())
+			updated := updateResponse.GetObject()
+			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING))
+			Expect(updated.GetSpec().GetComputeInstance()).To(Equal(runningInstanceID))
+		})
+
+		It("rejects detach when PublicIP not in ATTACHED state", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			pip.SetSpec(privatev1.PublicIPSpec_builder{
+				Pool:            poolID,
+				ComputeInstance: proto.String(runningInstanceID),
+			}.Build())
+			_, err := publicIPDao.Update().SetObject(pip).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, err = publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id:   pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.FailedPrecondition))
+			Expect(err.Error()).To(ContainSubstring("ATTACHED"))
+		})
+
+		It("successful detach transitions to RELEASING and preserves IP address", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			pip.SetStatus(privatev1.PublicIPStatus_builder{
+				State:   privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED,
+				Address: "192.168.1.100",
+			}.Build())
+			pip.SetSpec(privatev1.PublicIPSpec_builder{
+				Pool:            poolID,
+				ComputeInstance: proto.String(runningInstanceID),
+			}.Build())
+			_, err := publicIPDao.Update().SetObject(pip).Do(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			updateResponse, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id:   pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{}.Build(),
+				}.Build(),
+				UpdateMask: &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}},
+			}.Build())
+
+			Expect(err).ToNot(HaveOccurred())
+			updated := updateResponse.GetObject()
+			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING))
+			Expect(updated.GetSpec().GetComputeInstance()).To(BeEmpty())
+			Expect(updated.GetStatus().GetAddress()).To(Equal("192.168.1.100"))
 		})
 	})
 })

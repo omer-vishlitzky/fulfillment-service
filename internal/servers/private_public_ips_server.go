@@ -16,12 +16,14 @@ package servers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 	grpccodes "google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	privatev1 "github.com/osac-project/fulfillment-service/internal/api/osac/private/v1"
 	"github.com/osac-project/fulfillment-service/internal/auth"
@@ -33,7 +35,8 @@ import (
 // The key is the current state and the value is the list of valid target states.
 var validPublicIPTransitions = map[privatev1.PublicIPState][]privatev1.PublicIPState{
 	privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING:   {privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED},
-	privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED: {privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED},
+	privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED: {privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING, privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING},
+	privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING: {privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED},
 	privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED:  {privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING},
 	privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: {privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED},
 }
@@ -55,9 +58,10 @@ var _ privatev1.PublicIPsServer = (*PrivatePublicIPsServer)(nil)
 type PrivatePublicIPsServer struct {
 	privatev1.UnimplementedPublicIPsServer
 
-	logger          *slog.Logger
-	generic         *GenericServer[*privatev1.PublicIP]
-	publicIPPoolDao *dao.GenericDAO[*privatev1.PublicIPPool]
+	logger              *slog.Logger
+	generic             *GenericServer[*privatev1.PublicIP]
+	publicIPPoolDao     *dao.GenericDAO[*privatev1.PublicIPPool]
+	computeInstancesDao *dao.GenericDAO[*privatev1.ComputeInstance]
 }
 
 // NewPrivatePublicIPsServer creates a builder that can then be used to configure and create a PrivatePublicIPsServer.
@@ -122,6 +126,16 @@ func (b *PrivatePublicIPsServerBuilder) Build() (result *PrivatePublicIPsServer,
 		return
 	}
 
+	// Create the ComputeInstances DAO for attachment validation:
+	computeInstancesDao, err := dao.NewGenericDAO[*privatev1.ComputeInstance]().
+		SetLogger(b.logger).
+		SetTenancyLogic(b.tenancyLogic).
+		SetMetricsRegisterer(b.metricsRegisterer).
+		Build()
+	if err != nil {
+		return
+	}
+
 	// Create the generic server:
 	generic, err := NewGenericServer[*privatev1.PublicIP]().
 		SetLogger(b.logger).
@@ -137,9 +151,10 @@ func (b *PrivatePublicIPsServerBuilder) Build() (result *PrivatePublicIPsServer,
 
 	// Create and populate the object:
 	result = &PrivatePublicIPsServer{
-		logger:          b.logger,
-		generic:         generic,
-		publicIPPoolDao: publicIPPoolDao,
+		logger:              b.logger,
+		generic:             generic,
+		publicIPPoolDao:     publicIPPoolDao,
+		computeInstancesDao: computeInstancesDao,
 	}
 	return
 }
@@ -232,6 +247,32 @@ func (s *PrivatePublicIPsServer) Update(ctx context.Context,
 		}
 	}
 
+	if updateIncludesField(mask, "spec.compute_instance") {
+		currentCI := existingPublicIP.GetSpec().GetComputeInstance()
+		newCI := request.GetObject().GetSpec().GetComputeInstance()
+
+		switch {
+		case newCI != "" && currentCI == "":
+			err = s.validateAttachToComputeInstance(ctx, existingPublicIP, newCI)
+			if err != nil {
+				return
+			}
+			s.setStateOnRequest(request.GetObject(), request, privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING)
+
+		case newCI == "" && currentCI != "":
+			err = s.validateDetachFromComputeInstance(existingPublicIP)
+			if err != nil {
+				return
+			}
+			s.setStateOnRequest(request.GetObject(), request, privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING)
+
+		case newCI != "" && currentCI != "" && newCI != currentCI:
+			err = grpcstatus.Errorf(grpccodes.FailedPrecondition,
+				"cannot change compute instance directly; detach first, then attach to the new instance")
+			return
+		}
+	}
+
 	err = s.generic.Update(ctx, request, &response)
 	return
 }
@@ -287,31 +328,6 @@ func (s *PrivatePublicIPsServer) Signal(ctx context.Context,
 	request *privatev1.PublicIPsSignalRequest) (response *privatev1.PublicIPsSignalResponse, err error) {
 	err = s.generic.Signal(ctx, request, &response)
 	return
-}
-
-// validPublicIPTransitions defines the allowed state transitions for PublicIP resources.
-// Each state maps to the set of states it can transition to.
-var validPublicIPTransitions = map[privatev1.PublicIPState]map[privatev1.PublicIPState]bool{
-	privatev1.PublicIPState_PUBLIC_IP_STATE_PENDING: {
-		privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED: true,
-		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:    true,
-	},
-	privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED: {
-		privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING: true,
-		privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: true,
-		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:    true,
-	},
-	privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING: {
-		privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED: true,
-		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:   true,
-	},
-	privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED: {
-		privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: true,
-		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED:    true,
-	},
-	privatev1.PublicIPState_PUBLIC_IP_STATE_RELEASING: {
-		privatev1.PublicIPState_PUBLIC_IP_STATE_FAILED: true,
-	},
 }
 
 // validatePublicIP validates the PublicIP object before creation.
@@ -443,4 +459,72 @@ func validatePublicIPStateTransition(from, to privatev1.PublicIPState) error {
 	}
 
 	return nil
+}
+
+func (s *PrivatePublicIPsServer) validateAttachToComputeInstance(ctx context.Context,
+	current *privatev1.PublicIP, computeInstanceID string) error {
+	currentState := current.GetStatus().GetState()
+	if currentState != privatev1.PublicIPState_PUBLIC_IP_STATE_ALLOCATED {
+		return grpcstatus.Errorf(grpccodes.FailedPrecondition,
+			"public IP must be in ALLOCATED state to attach, current state: %s", currentState)
+	}
+
+	ciResponse, err := s.computeInstancesDao.Get().SetId(computeInstanceID).Do(ctx)
+	if err != nil {
+		var notFoundErr *dao.ErrNotFound
+		if errors.As(err, &notFoundErr) {
+			return grpcstatus.Errorf(grpccodes.InvalidArgument,
+				"compute instance '%s' does not exist", computeInstanceID)
+		}
+		s.logger.ErrorContext(ctx, "Failed to fetch compute instance for attach validation",
+			slog.String("compute_instance_id", computeInstanceID), slog.Any("error", err))
+		return grpcstatus.Errorf(grpccodes.Internal,
+			"failed to validate compute instance '%s'", computeInstanceID)
+	}
+	ci := ciResponse.GetObject()
+	if ci.GetStatus().GetState() != privatev1.ComputeInstanceState_COMPUTE_INSTANCE_STATE_RUNNING {
+		return grpcstatus.Errorf(grpccodes.FailedPrecondition,
+			"compute instance '%s' is not in RUNNING state", computeInstanceID)
+	}
+
+	filter := fmt.Sprintf("this.spec.compute_instance == %q", computeInstanceID)
+	listResponse, err := s.generic.dao.List().SetFilter(filter).SetLimit(1).Do(ctx)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "Failed to check for existing attachments",
+			slog.String("compute_instance_id", computeInstanceID), slog.Any("error", err))
+		return grpcstatus.Errorf(grpccodes.Internal,
+			"failed to check for existing attachments to compute instance '%s'", computeInstanceID)
+	}
+	if listResponse.GetTotal() > 0 {
+		return grpcstatus.Errorf(grpccodes.AlreadyExists,
+			"compute instance '%s' already has a public IP attached", computeInstanceID)
+	}
+
+	return nil
+}
+
+func (s *PrivatePublicIPsServer) validateDetachFromComputeInstance(current *privatev1.PublicIP) error {
+	currentState := current.GetStatus().GetState()
+	if currentState != privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHED {
+		return grpcstatus.Errorf(grpccodes.FailedPrecondition,
+			"public IP must be in ATTACHED state to detach, current state: %s", currentState)
+	}
+	return nil
+}
+
+func (s *PrivatePublicIPsServer) setStateOnRequest(
+	obj *privatev1.PublicIP, request *privatev1.PublicIPsUpdateRequest, state privatev1.PublicIPState) {
+	status := obj.GetStatus()
+	if status == nil {
+		status = &privatev1.PublicIPStatus{}
+	}
+	status.SetState(state)
+	obj.SetStatus(status)
+
+	mask := request.GetUpdateMask()
+	if mask != nil {
+		request.SetUpdateMask(&fieldmaskpb.FieldMask{
+			Paths: append(mask.GetPaths(), "status.state"),
+		})
+	}
 }

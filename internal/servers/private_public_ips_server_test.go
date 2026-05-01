@@ -1161,5 +1161,25 @@ var _ = Describe("Private public IPs server", func() {
 			Expect(updated.GetSpec().GetComputeInstance()).To(BeEmpty())
 			Expect(updated.GetStatus().GetAddress()).To(Equal("192.168.1.100"))
 		})
+
+		It("attach without FieldMask preserves existing fields", func() {
+			pip := createAllocatedPublicIP("192.168.1.100")
+
+			updateResponse, err := publicIPsServer.Update(ctx, privatev1.PublicIPsUpdateRequest_builder{
+				Object: privatev1.PublicIP_builder{
+					Id: pip.GetId(),
+					Spec: privatev1.PublicIPSpec_builder{
+						ComputeInstance: proto.String(runningInstanceID),
+					}.Build(),
+				}.Build(),
+			}.Build())
+
+			Expect(err).ToNot(HaveOccurred())
+			updated := updateResponse.GetObject()
+			Expect(updated.GetStatus().GetState()).To(Equal(privatev1.PublicIPState_PUBLIC_IP_STATE_ATTACHING))
+			Expect(updated.GetSpec().GetComputeInstance()).To(Equal(runningInstanceID))
+			Expect(updated.GetSpec().GetPool()).To(Equal(poolID))
+			Expect(updated.GetStatus().GetAddress()).To(Equal("192.168.1.100"))
+		})
 	})
 })

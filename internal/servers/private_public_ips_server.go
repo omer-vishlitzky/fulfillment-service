@@ -231,6 +231,11 @@ func (s *PrivatePublicIPsServer) Update(ctx context.Context,
 	existingPublicIP := getResponse.GetObject()
 	mask := request.GetUpdateMask()
 
+	if mask == nil && s.isAttachOrDetach(request.GetObject(), existingPublicIP) {
+		mask = &fieldmaskpb.FieldMask{Paths: []string{"spec.compute_instance"}}
+		request.SetUpdateMask(mask)
+	}
+
 	if updateIncludesField(mask, "spec.pool") {
 		if err = validateImmutableFieldsPublicIP(request.GetObject(), existingPublicIP); err != nil {
 			return
@@ -510,6 +515,13 @@ func (s *PrivatePublicIPsServer) validateDetachFromComputeInstance(current *priv
 			"public IP must be in ATTACHED state to detach, current state: %s", currentState)
 	}
 	return nil
+}
+
+func (s *PrivatePublicIPsServer) isAttachOrDetach(
+	incoming *privatev1.PublicIP, existing *privatev1.PublicIP) bool {
+	newCI := incoming.GetSpec().GetComputeInstance()
+	currentCI := existing.GetSpec().GetComputeInstance()
+	return newCI != currentCI
 }
 
 func (s *PrivatePublicIPsServer) setStateOnRequest(

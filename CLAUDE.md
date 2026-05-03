@@ -138,7 +138,7 @@ Hooks are configured in `.claude/settings.json` and run automatically during Cla
 - **Proto changes** (`PostToolUse`): When a `.proto` file is edited, `buf lint && buf generate` runs automatically to keep generated Go code in sync.
 - **Go module changes** (`PostToolUse`): When `go.mod` is edited, `go mod tidy` runs automatically.
 - **Pre-commit** (`PreToolUse`): `buf lint` runs before every `git commit` to catch proto issues early.
-- **Pre-PR** (`PreToolUse`): `buf lint && ginkgo run -r internal` runs before `gh pr create` to ensure tests pass.
+- **Pre-PR** (`PreToolUse`): `gofmt -s -w .` (auto-formats, then fails if any files changed — commit the fixes first), `buf lint`, and `ginkgo run -r internal` run before `gh pr create`.
 
 To replicate this setup in another OSAC repo, copy `.claude/settings.json` and adjust the commands as needed.
 

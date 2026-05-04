@@ -204,6 +204,9 @@ func (s *PrivateClustersServer) Update(ctx context.Context,
 	if err != nil {
 		return
 	}
+	if err = utils.ValidateClusterSpecFields(request.GetObject().GetSpec()); err != nil {
+		return
+	}
 	err = s.generic.Update(ctx, request, &response)
 	return
 }

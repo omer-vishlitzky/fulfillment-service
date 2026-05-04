@@ -1859,5 +1859,61 @@ var _ = Describe("Clusters server", func() {
 			Expect(response.GetObject().GetSpec().GetNetwork().GetPodCidr()).To(Equal(podCIDR))
 			Expect(response.GetObject().GetSpec().GetNetwork().GetServiceCidr()).To(Equal(serviceCIDR))
 		})
+
+		It("Rejects invalid pod_cidr on update", func() {
+			createResponse, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			invalidCIDR := "not-a-cidr"
+			_, err = server.Update(ctx, publicv1.ClustersUpdateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Id: createResponse.GetObject().GetId(),
+					Spec: publicv1.ClusterSpec_builder{
+						Network: publicv1.ClusterNetwork_builder{
+							PodCidr: &invalidCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("pod_cidr"))
+		})
+
+		It("Rejects invalid service_cidr on update", func() {
+			createResponse, err := server.Create(ctx, publicv1.ClustersCreateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Spec: publicv1.ClusterSpec_builder{
+						Template: "my_template",
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).ToNot(HaveOccurred())
+
+			invalidCIDR := "999.999.999.999/99"
+			_, err = server.Update(ctx, publicv1.ClustersUpdateRequest_builder{
+				Object: publicv1.Cluster_builder{
+					Id: createResponse.GetObject().GetId(),
+					Spec: publicv1.ClusterSpec_builder{
+						Network: publicv1.ClusterNetwork_builder{
+							ServiceCidr: &invalidCIDR,
+						}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build())
+			Expect(err).To(HaveOccurred())
+			status, ok := grpcstatus.FromError(err)
+			Expect(ok).To(BeTrue())
+			Expect(status.Code()).To(Equal(grpccodes.InvalidArgument))
+			Expect(status.Message()).To(ContainSubstring("service_cidr"))
+		})
 	})
 })

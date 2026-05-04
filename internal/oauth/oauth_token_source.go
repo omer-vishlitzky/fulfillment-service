@@ -615,6 +615,10 @@ func (s *TokenSource) discover(ctx context.Context) error {
 // fresh, even if it is still valid. This is to avoid using a token that is about to expire, and may expire in the
 // middle of the operation that it is used for.
 func (s *TokenSource) isFresh(token *auth.Token) bool {
+	// Token must have an access token to be considered fresh
+	if token.Access == "" {
+		return false
+	}
 	return token.Expiry.IsZero() || time.Until(token.Expiry) > 30*time.Second
 }
 
@@ -833,6 +837,12 @@ func (s *TokenSource) random(length int) []byte {
 
 func (s *TokenSource) encode(data []byte) string {
 	return base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(data)
+}
+
+// Invalidate clears the cached token, forcing a fresh token to be generated on the next Token() call.
+func (s *TokenSource) Invalidate(ctx context.Context) error {
+	// Save an empty token to invalidate the cache
+	return s.store.Save(ctx, &auth.Token{})
 }
 
 // defaultRedirectUri is the default redirect URI to use for the authorization code flow. It binds to localhost with

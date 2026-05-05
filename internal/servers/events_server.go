@@ -330,7 +330,7 @@ func (s *EventsServer) processPayload(ctx context.Context, payload proto.Message
 		return nil
 	}
 
-	// Skip object that don't have a public representtion:
+	// Skip objects that don't have a public representation:
 	if private.HasHub() {
 		return nil
 	}
@@ -407,6 +407,10 @@ func (s *EventsServer) extractMetadata(ctx context.Context, event *privatev1.Eve
 		return event.GetOrganization().GetMetadata()
 	case event.HasUser():
 		return event.GetUser().GetMetadata()
+	case event.HasRole():
+		return event.GetRole().GetMetadata()
+	case event.HasRoleBinding():
+		return event.GetRoleBinding().GetMetadata()
 	default:
 		s.logger.ErrorContext(
 			ctx,

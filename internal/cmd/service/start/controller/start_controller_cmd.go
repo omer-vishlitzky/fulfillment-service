@@ -45,6 +45,8 @@ import (
 	"github.com/osac-project/fulfillment-service/internal/controllers/organization"
 	"github.com/osac-project/fulfillment-service/internal/controllers/publicip"
 	"github.com/osac-project/fulfillment-service/internal/controllers/publicippool"
+	"github.com/osac-project/fulfillment-service/internal/controllers/role"
+	"github.com/osac-project/fulfillment-service/internal/controllers/rolebinding"
 	"github.com/osac-project/fulfillment-service/internal/controllers/securitygroup"
 	"github.com/osac-project/fulfillment-service/internal/controllers/subnet"
 	"github.com/osac-project/fulfillment-service/internal/controllers/virtualnetwork"
@@ -612,6 +614,78 @@ func (r *runnerContext) run(cmd *cobra.Command, argv []string) error {
 			r.logger.InfoContext(
 				ctx,
 				"Public IP reconciler failed",
+				slog.Any("error", err),
+			)
+		}
+	}()
+
+	// Create the role reconciler:
+	r.logger.InfoContext(ctx, "Creating role reconciler")
+	roleReconcilerFunction, err := role.NewFunction().
+		SetLogger(r.logger).
+		SetConnection(r.client).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create role reconciler function: %w", err)
+	}
+	roleReconciler, err := controllers.NewReconciler[*privatev1.Role]().
+		SetLogger(r.logger).
+		SetName("role").
+		SetClient(r.client).
+		SetFunction(roleReconcilerFunction.Run).
+		SetEventFilter("has(event.role)").
+		SetHealthReporter(healthAggregator).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create role reconciler: %w", err)
+	}
+
+	// Start the role reconciler:
+	r.logger.InfoContext(ctx, "Starting role reconciler")
+	go func() {
+		err := roleReconciler.Start(ctx)
+		if err == nil || errors.Is(err, context.Canceled) {
+			r.logger.InfoContext(ctx, "Role reconciler finished")
+		} else {
+			r.logger.InfoContext(
+				ctx,
+				"Role reconciler failed",
+				slog.Any("error", err),
+			)
+		}
+	}()
+
+	// Create the role binding reconciler:
+	r.logger.InfoContext(ctx, "Creating role binding reconciler")
+	roleBindingReconcilerFunction, err := rolebinding.NewFunction().
+		SetLogger(r.logger).
+		SetConnection(r.client).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create role binding reconciler function: %w", err)
+	}
+	roleBindingReconciler, err := controllers.NewReconciler[*privatev1.RoleBinding]().
+		SetLogger(r.logger).
+		SetName("role_binding").
+		SetClient(r.client).
+		SetFunction(roleBindingReconcilerFunction.Run).
+		SetEventFilter("has(event.role_binding)").
+		SetHealthReporter(healthAggregator).
+		Build()
+	if err != nil {
+		return fmt.Errorf("failed to create role binding reconciler: %w", err)
+	}
+
+	// Start the role binding reconciler:
+	r.logger.InfoContext(ctx, "Starting role binding reconciler")
+	go func() {
+		err := roleBindingReconciler.Start(ctx)
+		if err == nil || errors.Is(err, context.Canceled) {
+			r.logger.InfoContext(ctx, "Role binding reconciler finished")
+		} else {
+			r.logger.InfoContext(
+				ctx,
+				"Role binding reconciler failed",
 				slog.Any("error", err),
 			)
 		}

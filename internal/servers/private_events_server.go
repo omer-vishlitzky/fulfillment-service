@@ -62,6 +62,8 @@ type privateEventsServerSubInfo struct {
 	eventsChan chan *privatev1.Event
 }
 
+const eventsChanBufferSize = 64
+
 func NewPrivateEventsServer() *PrivateEventsServerBuilder {
 	return &PrivateEventsServerBuilder{}
 }
@@ -208,7 +210,7 @@ func (s *PrivateEventsServer) Watch(request *privatev1.EventsWatchRequest,
 		stream:     stream,
 		filterSrc:  filterSrc,
 		filterPrg:  filterPrg,
-		eventsChan: make(chan *privatev1.Event),
+		eventsChan: make(chan *privatev1.Event, eventsChanBufferSize),
 	}
 	s.subsLock.Lock()
 	s.subs[subId] = subInfo
@@ -310,8 +312,12 @@ func (s *PrivateEventsServer) processEvent(ctx context.Context, event *privatev1
 			}
 		}
 		if accepted {
-			logger.DebugContext(ctx, "Event accepted by filter")
-			sub.eventsChan <- event
+			select {
+			case sub.eventsChan <- event:
+				logger.DebugContext(ctx, "Event accepted by filter")
+			default:
+				logger.WarnContext(ctx, "Subscriber channel full, event dropped")
+			}
 		} else {
 			logger.DebugContext(ctx, "Event rejected by filter")
 		}

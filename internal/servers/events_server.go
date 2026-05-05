@@ -247,7 +247,7 @@ func (s *EventsServer) Watch(request *publicv1.EventsWatchRequest,
 		subject:    subject,
 		filterSrc:  filterSrc,
 		filterPrg:  filterPrg,
-		eventsChan: make(chan *publicv1.Event),
+		eventsChan: make(chan *publicv1.Event, eventsChanBufferSize),
 	}
 	s.subsLock.Lock()
 	s.subs[subId] = subInfo
@@ -463,8 +463,12 @@ func (s *EventsServer) processEvent(ctx context.Context, public *publicv1.Event,
 
 		// Forward the event to the subscription:
 		if accepted {
-			logger.DebugContext(ctx, "Event accepted by filter")
-			sub.eventsChan <- public
+			select {
+			case sub.eventsChan <- public:
+				logger.DebugContext(ctx, "Event accepted by filter")
+			default:
+				logger.WarnContext(ctx, "Subscriber channel full, event dropped")
+			}
 		} else {
 			logger.DebugContext(ctx, "Event rejected by filter")
 		}
